@@ -65,11 +65,11 @@ class TestAdapterContext:
         task = AgentTask(
             id="t1", agent=Producer.CodingAgent,
             kind=AgentKind.coding_task,
-            input={"repo_path": "/x", "task_goal": "fix bug",
+            input={"workspace_path": "/x", "task_goal": "fix bug",
                    "constraints": ["no refactor"], "verify_commands": ["pytest"]}
         )
         ctx = build_codingagent_context(task)
-        assert ctx["repo_path"] == "/x"
+        assert ctx["workspace_path"] == "/x"
         assert ctx["task_goal"] == "fix bug"
         assert "no refactor" in ctx["constraints"]
 

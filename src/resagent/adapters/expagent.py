@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -60,6 +61,7 @@ class ExpAgentAdapter:
         with open(dec_dir / "scientific_decision.json", "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
+        self._state = state  # so inference helpers can access state
         tasks = self._actions_to_tasks(
             raw.get("recommended_actions", []),
             source=artifact.id,
@@ -106,11 +108,11 @@ class ExpAgentAdapter:
 
         repo_paths = set()
         for t in state.tasks:
-            rp = t.input.get("repo_path", "")
+            rp = t.input.get("workspace_path") or t.input.get("repo_path", "")
             if rp:
                 repo_paths.add(rp)
         if repo_paths:
-            parts.append(f"Available Repositories: {', '.join(sorted(repo_paths))}")
+            parts.append(f"Available Workspaces: {', '.join(sorted(repo_paths))}")
 
         if state.tasks:
             task_lines = ["Current Tasks:"]
@@ -179,7 +181,7 @@ class ExpAgentAdapter:
                     "rationale": "Add consistent metric logging to the training code.",
                     "plan": {
                         "kind": "coding_task",
-                        "repo_path": "./",
+                        "workspace_path": "./",
                         "task_goal": "Add parameter count and FLOPs logging",
                         "constraints": ["Do not change training semantics"],
                         "verify_commands": ["python train.py --epochs 1 --dry-run"],
@@ -196,7 +198,12 @@ class ExpAgentAdapter:
     def _actions_to_tasks(
         self, actions: list[dict], source: str, next_num: int
     ) -> list[AgentTask]:
-        """Convert ExpAgent recommended_actions into ResAgent AgentTasks."""
+        """Convert ExpAgent recommended_actions into ResAgent AgentTasks.
+
+        ExpAgent fills scientific fields (kind, task_goal, rationale, etc.).
+        ResAgent fills operational fields (workspace_path, constraints,
+        verify_commands) via inference from the current state.
+        """
         tasks = []
         kind_map = {
             "coding_task": (AgentKind.coding_task, Producer.CodingAgent),
@@ -228,17 +235,21 @@ class ExpAgentAdapter:
                 input={
                     "description": action.get("rationale", ""),
                     "action_type": action_type,
-                    "repo_path": plan.get("repo_path", ""),
+                    # ── ExpAgent fills these ──────────────────────
                     "task_goal": plan.get("task_goal", ""),
-                    "constraints": plan.get("constraints", []),
-                    "verify_commands": plan.get("verify_commands", []),
-                    "expected_artifacts": plan.get("expected_artifacts", []),
                     "paper_url": plan.get("paper_url", ""),
                     "repo_url": plan.get("repo_url", ""),
                     "experiment_goal": plan.get("experiment_goal", ""),
+                    "expected_metrics": plan.get("expected_metrics", []),
                     "command_goal": plan.get("command_goal", ""),
                     "search_query": plan.get("search_query", ""),
                     "question": plan.get("question", ""),
+                    # ── ResAgent fills these (or uses ExpAgent's if provided) ──
+                    "workspace_path": _infer_workspace_path(
+                        self._state, plan, action),
+                    "constraints": _infer_constraints(plan),
+                    "verify_commands": _infer_verify_commands(plan),
+                    "expected_artifacts": plan.get("expected_artifacts", []),
                 },
             )
             tasks.append(task)
@@ -278,3 +289,75 @@ def _map_artifact_type(t: str) -> str:
         "experiment_plan": "other",
     }
     return mapping.get(t, "other")
+
+
+# ── Parameter inference helpers ───────────────────────────────────────────────
+# These fill operational fields that ExpAgent leaves empty.
+# ExpAgent's job is scientific decisions; ResAgent's job is operational params.
+
+
+def _infer_workspace_path(state, plan: dict, action: dict) -> str:
+    """Infer the workspace path for a coding task.
+
+    Priority:
+    1. ExpAgent-provided value (respect scientific judgment)
+    2. Extract from research goal text
+    3. Inherit from existing tasks
+    4. Empty string (LLM Planner or user fills in)
+    """
+    # 1. ExpAgent already filled it (new name or old compat name)
+    for key in ("workspace_path", "repo_path"):
+        val = plan.get(key, "")
+        if val and val.strip():
+            return val.strip()
+
+    # 2. Try extracting from research goal
+    goal = state.run.research_goal if state else ""
+    for pattern in [r'(/[^\s,;.]+)', r'([A-Za-z]:\\[^\s,;.]+)']:
+        match = re.search(pattern, goal)
+        if match:
+            path = match.group(1).rstrip(".")
+            # If it looks like a file path, use parent directory
+            if "." in os.path.basename(path) and not os.path.isdir(path):
+                parent = os.path.dirname(path)
+                if parent:
+                    return parent
+            return path
+
+    # 3. Inherit from existing tasks
+    if state:
+        for t in state.tasks:
+            for key in ("workspace_path", "repo_path"):
+                p = t.input.get(key, "")
+                if p:
+                    return p
+
+    return ""
+
+
+def _infer_constraints(plan: dict) -> list[str]:
+    """Generate default constraints if ExpAgent didn't provide them."""
+    existing = plan.get("constraints", [])
+    if existing:
+        return list(existing) if isinstance(existing, list) else [existing]
+
+    kind = plan.get("kind", "")
+    defaults = {
+        "coding_task": [
+            "Do not change training semantics or model architecture",
+            "Only modify files necessary for the stated goal",
+        ],
+    }
+    return defaults.get(kind, [])
+
+
+def _infer_verify_commands(plan: dict) -> list[str]:
+    """Generate default verify commands if ExpAgent didn't provide them."""
+    existing = plan.get("verify_commands", [])
+    if existing:
+        return list(existing) if isinstance(existing, list) else [existing]
+
+    kind = plan.get("kind", "")
+    if kind == "coding_task":
+        return ["python -m py_compile *.py"]
+    return []

@@ -47,7 +47,7 @@ when results need interpretation, or when the plan needs revision.
   Params: reason, focus
 
 - **call_coding_agent**: Dispatch a code task to CodingAgent.
-  Params: repo_path, task_goal, constraints, verify_commands
+  Params: workspace_path, task_goal, constraints, verify_commands
 
 - **call_repro_agent**: Dispatch a reproduction task to ReproAgent.
   Params: paper_url, repo_url, experiment_goal

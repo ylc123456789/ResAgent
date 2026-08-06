@@ -12,6 +12,10 @@ from .models import (
     ResearchState, AgentTask, DecisionRecord, Observation,
     ActionName, Producer, TaskStatus, AgentKind, RunStatus,
 )
+from .planner import Planner, PlannedAction
+from .adapters.expagent import ExpAgentAdapter
+from .adapters.codingagent import CodingAgentAdapter
+from .adapters.reproagent import ReproAgentAdapter
 from .state import save_state
 
 

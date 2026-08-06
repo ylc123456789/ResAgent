@@ -86,7 +86,8 @@ def build_codingagent_context(task: AgentTask) -> dict:
         return list(v)
 
     return {
-        "repo_path": task.input.get("repo_path", ""),
+        "workspace_path": task.input.get("workspace_path")
+                       or task.input.get("repo_path", ""),
         "task_goal": task.input.get("task_goal", ""),
         "constraints": _as_list(task.input.get("constraints", [])),
         "verify_commands": _as_list(task.input.get("verify_commands", [])),

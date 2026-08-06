@@ -62,7 +62,7 @@ class CodingAgentAdapter:
         from coding_agent import CodeTaskSpec, run_code_task
 
         task_spec = CodeTaskSpec(
-            repo_path=spec.get("repo_path", ""),
+            workspace_path=Path(spec.get("workspace_path", "") or "."),
             task_goal=spec.get("task_goal", ""),
             constraints=spec.get("constraints", []),
             verify_commands=spec.get("verify_commands", []),
@@ -71,7 +71,7 @@ class CodingAgentAdapter:
             model=self.model,
             api_base=self.api_base,
             api_key_env=self.api_key_env,
-            output_dir=str(out_dir),
+            output_dir=out_dir,
         )
 
         result = run_code_task(task_spec)
