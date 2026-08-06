@@ -1,0 +1,76 @@
+"""Tests for adapters — mock mode only."""
+
+import tempfile
+from pathlib import Path
+
+from resagent.models import (
+    ResearchState, ResearchRun, AgentTask, Producer, AgentKind,
+)
+from resagent.adapters.expagent import ExpAgentAdapter
+from resagent.adapters.codingagent import CodingAgentAdapter
+from resagent.adapters.reproagent import ReproAgentAdapter
+
+
+def _make_state():
+    run = ResearchRun(
+        run_id="test-adapter-001", workspace_dir="/tmp/runs",
+        research_goal="Test research",
+    )
+    return ResearchState(run=run)
+
+
+class TestExpAgentAdapter:
+    def test_mock_advise(self):
+        adapter = ExpAgentAdapter(mock=True)
+        state = _make_state()
+        result = adapter.advise(state, tempfile.mkdtemp())
+
+        assert result["artifact"] is not None
+        assert result["artifact"].producer == Producer.ExpAgent
+        assert len(result["tasks"]) > 0
+        assert result["tasks"][0].agent in (
+            Producer.CodingAgent, Producer.ReproAgent
+        )
+
+    def test_mock_creates_tasks(self):
+        adapter = ExpAgentAdapter(mock=True)
+        state = _make_state()
+        result = adapter.advise(state, tempfile.mkdtemp())
+
+        tasks = result["tasks"]
+        kinds = {t.kind for t in tasks}
+        assert AgentKind.coding_task in kinds or AgentKind.repro_task in kinds
+
+
+class TestCodingAgentAdapter:
+    def test_mock_execute(self):
+        adapter = CodingAgentAdapter(mock=True)
+        task = AgentTask(
+            id="task_001", agent=Producer.CodingAgent,
+            kind=AgentKind.coding_task,
+            input={"repo_path": "/tmp", "task_goal": "test coding task"}
+        )
+        result = adapter.execute(task, tempfile.mkdtemp())
+
+        assert result["artifact"] is not None
+        assert result["artifact"].producer == Producer.CodingAgent
+        assert "test coding task" in result["artifact"].summary
+
+
+class TestReproAgentAdapter:
+    def test_mock_execute(self):
+        adapter = ReproAgentAdapter(mock=True)
+        task = AgentTask(
+            id="task_002", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task,
+            input={
+                "paper_url": "https://arxiv.org/abs/1234",
+                "repo_url": "https://github.com/x/y",
+                "experiment_goal": "reproduce baseline",
+            }
+        )
+        result = adapter.execute(task, tempfile.mkdtemp())
+
+        assert result["artifact"] is not None
+        assert result["artifact"].producer == Producer.ReproAgent
+        assert result["returncode"] == 0

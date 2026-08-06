@@ -1,0 +1,20 @@
+# ResAgent configuration
+# Copy to config.yaml and adjust paths for your environment.
+
+agents:
+  expagent_path: /home/cyl/ExpAgent
+  reproagent_path: /home/cyl/reproagent
+  codingagent_path: /home/cyl/CodingAgent
+
+llm:
+  api_base: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
+  model: deepseek-v4-pro
+
+workspace:
+  default_runs_dir: runs
+
+policy:
+  max_task_retries: 2
+  confirm_before_external_runs: true
+  confirm_before_long_tasks: true
