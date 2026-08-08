@@ -147,6 +147,17 @@ class Observation(BaseModel):
     task_ids: list[str] = Field(default_factory=list)
 
 
+class UserDirective(BaseModel):
+    """An explicit instruction from the user, injected via the chat layer.
+
+    Directives persist as part of run history (auditable); the planner sees
+    the most recent ones every step. See docs/CONVERSATION_LAYER_DESIGN.md §4.7.
+    """
+    text: str
+    ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    source_conversation: str = ""
+
+
 class ResearchState(BaseModel):
     """Full persistent state of a research run."""
     run: ResearchRun
@@ -156,6 +167,7 @@ class ResearchState(BaseModel):
     decisions: list[DecisionRecord] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
+    user_directives: list[UserDirective] = Field(default_factory=list)
 
     # ── helpers ───────────────────────────────────────────────────────────
 

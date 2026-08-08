@@ -57,6 +57,60 @@ class CodingAgentAdapter:
 
         return {"artifact": artifact, "raw": raw}
 
+    # ── ad-hoc read-only QA (conversation layer, no ResearchRun) ───────────
+
+    def ask_adhoc(
+        self,
+        question: str,
+        workspace_path: str,
+        out_dir: str,
+        context_hint: str = "",
+        max_steps: int | None = None,
+    ) -> dict:
+        """Read-only code question (chat layer Tier-1 consult).
+
+        Returns the raw CodeExplanation dict.
+        """
+        if self.mock:
+            return {
+                "status": "completed",
+                "answer": (
+                    f"Mock answer to: {question[:120]}... "
+                    "This is a deterministic mock for offline testing."
+                ),
+                "evidence_files": [],
+                "relevant_snippets": [],
+                "uncertainty": "mock mode",
+                "commands_run": [],
+            }
+
+        self._ensure_import()
+        from coding_agent import CodeQuestionSpec, run_code_question
+
+        ws = Path(workspace_path).expanduser()
+        if not ws.exists():
+            raise RuntimeError(f"workspace_path does not exist: {ws}")
+
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        spec = CodeQuestionSpec(
+            workspace_path=ws,
+            question=question,
+            output_dir=out,
+            context_hint=context_hint,
+            max_steps=max_steps or 12,
+            model=self.model,
+            api_base=self.api_base,
+            api_key_env=self.api_key_env,
+        )
+        result = run_code_question(spec)
+
+        raw = result.model_dump() if hasattr(result, "model_dump") else {}
+        with open(out / "code_explanation.json", "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+        return raw
+
     def _call_execute(self, spec: dict, out_dir: Path) -> dict:
         self._ensure_import()
         from coding_agent import CodeTaskSpec, run_code_task

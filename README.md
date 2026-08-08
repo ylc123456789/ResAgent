@@ -13,12 +13,22 @@ the research lifecycle by coordinating three specialist agents:
 ## Architecture
 
 ```
+resagent chat (conversation layer — unified entry point)
+   |-- ChatLoop: routing = tool choice, no intent classifier
+   |-- Tier 0/1: reply, consult_expert (read-only advisory)
+   |-- Tier 2: propose -> confirm -> ResearchRun (user-gated)
+   v
 CLI -> Orchestrator -> Controller (agentic loop)
                         |-- Planner (LLM action selection)
                         |-- Adapters -> ExpAgent / CodingAgent / ReproAgent
 ```
 
-6 actions: call_exp_agent | call_coding_agent | call_repro_agent | classify_failure | ask_user | finish
+6 run-loop actions: call_exp_agent | call_coding_agent | call_repro_agent | classify_failure | ask_user | finish
+
+6 chat tools: consult_expert | list_runs | inspect_run | propose_research_run | start_research_run | advance_run
+
+Experts are self-describing via `agent.yaml` cards (Capability Registry).
+See docs/CONVERSATION_LAYER_DESIGN.md.
 
 Module path resolution: CLI arg > env var > config.yaml > importable package > vendor
 
@@ -28,11 +38,15 @@ Module path resolution: CLI arg > env var > config.yaml > importable package > v
 pip install -e ".[dev]"
 export DEEPSEEK_API_KEY=sk-...
 
-resagent init --goal "Compare CNN architectures on CIFAR-10" --workspace runs/
-resagent run --workspace runs/ --run-id <id> \
+# Unified entry: ask questions, discuss ideas, start/continue projects
+resagent chat --workspace runs/ \
   --expagent-path /path/to/ExpAgent \
   --codingagent-path /path/to/CodingAgent \
   --reproagent-path /path/to/ReproAgent
+
+# Batch mode (unchanged): drive a research run directly
+resagent init --goal "Compare CNN architectures on CIFAR-10" --workspace runs/
+resagent run --workspace runs/ --run-id <id>
 resagent status --workspace runs/ --run-id <id>
 ```
 

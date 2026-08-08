@@ -34,6 +34,13 @@ def build_controller_context(state: ResearchState) -> str:
     if state.current_summary:
         parts.append(f"\n## Summary\n{state.current_summary}")
 
+    # User directives (explicit instructions from the chat layer)
+    if state.user_directives:
+        lines = ["\n## User Directives (latest last)"]
+        for d in state.user_directives[-3:]:
+            lines.append(f"- [{d.ts:%Y-%m-%d %H:%M}] {d.text}")
+        parts.append("\n".join(lines))
+
     # Tasks (focus on active ones)
     tasks_text = _format_tasks(state.tasks)
     if tasks_text:

@@ -12,6 +12,7 @@ class AgentPaths:
     expagent: str = ""
     codingagent: str = ""
     reproagent: str = ""
+    cards: dict = field(default_factory=dict)  # agents.cards.<name> overrides
 
 
 @dataclass
@@ -34,11 +35,22 @@ class PolicyConfig:
 
 
 @dataclass
+class ChatConfig:
+    """Conversation-layer settings (docs/CONVERSATION_LAYER_DESIGN.md §4.9)."""
+    max_tool_calls_per_turn: int = 4
+    default_advance_steps: int = 3
+    max_steps_per_turn: int = 5
+    consult_max_steps: int = 12  # step cap passed to expert advisory calls
+    conversations_dirname: str = "conversations"
+
+
+@dataclass
 class Config:
     agents: AgentPaths = field(default_factory=AgentPaths)
     llm: LLMConfig = field(default_factory=LLMConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
+    chat: ChatConfig = field(default_factory=ChatConfig)
 
     # External module command overrides (for subprocess fallback).
     # Filled from module_paths resolution.
@@ -91,6 +103,9 @@ def _apply_yaml(cfg: Config, path: str) -> None:
         cfg.agents.expagent = agents.get("expagent_path", cfg.agents.expagent)
         cfg.agents.codingagent = agents.get("codingagent_path", cfg.agents.codingagent)
         cfg.agents.reproagent = agents.get("reproagent_path", cfg.agents.reproagent)
+        cards = agents.get("cards", {})
+        if isinstance(cards, dict):
+            cfg.agents.cards = cards
 
     llm = data.get("llm", {})
     if isinstance(llm, dict):
@@ -111,3 +126,10 @@ def _apply_yaml(cfg: Config, path: str) -> None:
         cfg.policy.confirm_before_long_tasks = pol.get(
             "confirm_before_long_tasks", cfg.policy.confirm_before_long_tasks
         )
+
+    chat = data.get("chat", {})
+    if isinstance(chat, dict):
+        for key in ("max_tool_calls_per_turn", "default_advance_steps",
+                    "max_steps_per_turn", "consult_max_steps", "conversations_dirname"):
+            if key in chat:
+                setattr(cfg.chat, key, chat[key])

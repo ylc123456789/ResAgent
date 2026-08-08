@@ -1,6 +1,7 @@
 """ResAgent CLI — entry point for all commands.
 
 Usage:
+    resagent chat [--workspace <dir>] [--conversation-id <id>] [--mock]
     resagent init --goal <file> --workspace <dir>
     resagent run --workspace <dir> --run-id <id> [--mock] [--max-steps N]
     resagent step --workspace <dir> --run-id <id> [--mock]
@@ -65,6 +66,16 @@ def main():
     p_status = sub.add_parser("status", help="Show run status")
     p_status.add_argument("--workspace", required=True, help="Workspace root dir")
     p_status.add_argument("--run-id", required=True, help="Run ID")
+
+    # -- chat --
+    p_chat = sub.add_parser("chat", help="Unified conversation entry (REPL)")
+    p_chat.add_argument("--workspace", default="runs", help="Workspace root dir")
+    p_chat.add_argument("--conversation-id", default="",
+                        help="Resume an existing conversation by ID")
+    p_chat.add_argument("--resume", default="", help="Alias for --conversation-id")
+    p_chat.add_argument("--mock", action="store_true",
+                        help="Mock LLM + all experts (no API calls)")
+    _add_path_args(p_chat)
 
     args = parser.parse_args()
 
@@ -134,6 +145,41 @@ def _dispatch(args):
 
     elif args.command == "status":
         print(status(args.workspace, args.run_id))
+
+    elif args.command == "chat":
+        from .capabilities import CapabilityRegistry
+        from .chat import ChatLoop, run_repl
+        from .chat_tools import ChatTools
+        from .conversation import load_conversation, new_conversation
+
+        mock = getattr(args, "mock", False)
+        ws = str(Path(args.workspace).resolve())
+
+        registry = CapabilityRegistry(cfg)
+        registry.load()
+        for w in registry.warnings:
+            print(f"[registry] {w}", file=sys.stderr)
+
+        # One shared controller: its adapters serve Tier-1 consults, and the
+        # controller itself drives Tier-2 run advancement.
+        ctrl = build_controller(cfg, mock=mock)
+        tools = ChatTools(
+            cfg, registry,
+            expagent=ctrl.expagent,
+            codingagent=ctrl.codingagent,
+            controller_factory=lambda: ctrl,
+            mock=mock,
+        )
+        chat = ChatLoop(cfg, registry, tools, mock=mock)
+
+        conv_id = args.conversation_id or args.resume
+        conv = load_conversation(ws, conv_id) if conv_id else None
+        if conv is None:
+            if conv_id:
+                print(f"Conversation not found: {conv_id}; starting a new one.")
+            conv = new_conversation(ws, cfg.chat.conversations_dirname)
+
+        run_repl(conv, chat, tools, ws)
 
 
 def _read_goal(goal_spec: str) -> str:

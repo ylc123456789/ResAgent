@@ -70,6 +70,75 @@ class ExpAgentAdapter:
 
         return {"artifact": artifact, "tasks": tasks, "raw": raw}
 
+    # ── ad-hoc advisory calls (conversation layer, no ResearchRun) ─────────
+
+    def advise_adhoc(
+        self,
+        situation: str,
+        artifacts: list[dict],
+        out_dir: str,
+        max_steps: int | None = None,
+        enable_paper_search: bool = True,
+    ) -> dict:
+        """Advisory call outside any ResearchRun (chat layer Tier-1 consult).
+
+        Returns the raw decision dict. Purely advisory: the caller
+        (chat_tools) must NOT create AgentTasks from recommended_actions.
+        """
+        if self.mock:
+            return self._mock_adhoc(situation)
+
+        self._ensure_import()
+        from experiment_designer.models import AdvisorContext, ArtifactRef
+        from experiment_designer.advisor import advise
+
+        refs = []
+        for i, a in enumerate(artifacts):
+            refs.append(ArtifactRef(
+                id=a.get("id", f"ref_{i}"),
+                type=_clamp_artifact_ref_type(a.get("type", "other")),
+                path=a.get("path") or None,
+                summary=a.get("summary", ""),
+            ))
+
+        ctx = AdvisorContext(situation=situation, artifacts=refs, existing_plan=None)
+
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        decision, extra = advise(
+            ctx,
+            model=self.model,
+            api_base=self.api_base,
+            api_key_env=self.api_key_env,
+            mock=False,
+            run_dir=out,
+            max_steps=max_steps,
+            enable_paper_search=enable_paper_search,
+        )
+
+        raw = decision.model_dump() if hasattr(decision, "model_dump") else {}
+        if isinstance(raw, dict):
+            raw["_extra"] = extra
+        with open(out / "scientific_decision.json", "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+        return raw
+
+    def _mock_adhoc(self, situation: str) -> dict:
+        return {
+            "summary": (
+                f"Mock advisory on: {situation[:120]}... "
+                "This is a deterministic mock answer for offline testing."
+            ),
+            "confidence": "medium",
+            "conclusion": None,  # explanation-style response (E1 schema relaxation)
+            "evidence": [],
+            "experiment_plan": None,
+            "recommended_actions": [],
+            "risks": [],
+            "needs_user_input": [],
+        }
+
     # ── context building ─────────────────────────────────────────────────
 
     def _build_advisor_context(self, state) -> "AdvisorContext":
@@ -276,6 +345,12 @@ class ExpAgentAdapter:
                 f"Set --expagent-path or EXPAGENT_PATH. Error: {e}"
             )
         self._imported = True
+
+
+def _clamp_artifact_ref_type(t: str) -> str:
+    """Clamp to ExpAgent ArtifactRef's accepted type vocabulary."""
+    allowed = {"repro_result", "code_patch", "run_log", "metric_summary", "other"}
+    return t if t in allowed else "other"
 
 
 def _map_artifact_type(t: str) -> str:
