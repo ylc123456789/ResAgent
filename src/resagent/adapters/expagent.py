@@ -15,6 +15,7 @@ from pathlib import Path
 from ..models import (
     Artifact, ArtifactType, Producer, AgentTask, AgentKind, TaskPriority,
 )
+from ..workspace_layout import WorkspaceLayout
 
 
 class ExpAgentAdapter:
@@ -35,31 +36,38 @@ class ExpAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def advise(self, state, workspace_dir: str) -> dict:
+    def advise(self, state, layout) -> dict:
         """Call ExpAgent for scientific advice.
 
         Returns: {"artifact": Artifact, "tasks": list[AgentTask], "raw": dict}
         """
+        dec_num = state.next_artifact_number()
+        dec_dir = layout.expagent_decision_dir(dec_num)
+        exp_run_dir = layout.expagent_run_dir(dec_num)
+
+        layout.write_task_manifest(dec_dir, task_id=f"exp_decision_{dec_num:03d}",
+                                   module="ExpAgent",
+                                   input_summary=state.current_summary or state.run.research_goal[:200])
+
         if self.mock:
             raw = self._mock_advise(state)
         else:
             ctx = self._build_advisor_context(state)
-            raw = self._call_advise(ctx, workspace_dir)
+            raw = self._call_advise(ctx, exp_run_dir)
 
-        dec_num = state.next_artifact_number()
+        dec_dir.mkdir(parents=True, exist_ok=True)
+        with open(dec_dir / "scientific_decision.json", "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+
+        artifact_path = layout.relpath(dec_dir / "scientific_decision.json")
         artifact = Artifact(
             id=f"exp_decision_{dec_num:03d}",
             type=ArtifactType.scientific_decision,
             producer=Producer.ExpAgent,
-            path=f"expagent/decision_{dec_num:03d}/scientific_decision.json",
+            path=artifact_path,
             summary=raw.get("summary", "")[:200],
             metadata={"raw_decision": raw},
         )
-
-        dec_dir = Path(workspace_dir) / f"expagent/decision_{dec_num:03d}"
-        dec_dir.mkdir(parents=True, exist_ok=True)
-        with open(dec_dir / "scientific_decision.json", "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
         self._state = state  # so inference helpers can access state
         tasks = self._actions_to_tasks(
@@ -197,11 +205,10 @@ class ExpAgentAdapter:
 
     # ── real call ─────────────────────────────────────────────────────────
 
-    def _call_advise(self, ctx, workspace_dir: str) -> dict:
+    def _call_advise(self, ctx, run_dir: Path) -> dict:
         self._ensure_import()
         from experiment_designer.advisor import advise
 
-        run_dir = Path(workspace_dir) / "expagent"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         decision, extra = advise(

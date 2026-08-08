@@ -6,8 +6,6 @@ records observations, and repeats until finish or blocked.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from .models import (
     ResearchState, AgentTask, DecisionRecord, Observation,
     ActionName, Producer, TaskStatus, AgentKind, RunStatus,
@@ -17,6 +15,7 @@ from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
 from .state import save_state
+from .workspace_layout import WorkspaceLayout
 
 
 class Controller:
@@ -91,7 +90,7 @@ class Controller:
     # -- action execution ---------------------------------------------------
 
     def _execute(self, state: ResearchState, planned: PlannedAction) -> Observation:
-        ws = str(Path(state.run.workspace_dir) / state.run.run_id)
+        layout = WorkspaceLayout(state.run.workspace_dir, state.run.run_id)
 
         handlers = {
             ActionName.call_exp_agent: self._handle_exp_agent,
@@ -103,10 +102,10 @@ class Controller:
         }
 
         handler = handlers.get(planned.action, self._handle_unknown)
-        return handler(state, planned, ws)
+        return handler(state, planned, layout)
 
-    def _handle_exp_agent(self, state, planned, ws) -> Observation:
-        result = self.expagent.advise(state, ws)
+    def _handle_exp_agent(self, state, planned, layout) -> Observation:
+        result = self.expagent.advise(state, layout)
         state.artifacts.append(result["artifact"])
 
         for task in result.get("tasks", []):
@@ -120,7 +119,7 @@ class Controller:
             task_ids=[t.id for t in result.get("tasks", [])],
         )
 
-    def _handle_coding_agent(self, state, planned, ws) -> Observation:
+    def _handle_coding_agent(self, state, planned, layout) -> Observation:
         task_id = planned.params.get("task_id", "")
         task = state.find_task(task_id)
         if task:
@@ -138,7 +137,7 @@ class Controller:
                 state.tasks.append(task)
                 task.status = TaskStatus.running
 
-            result = self.codingagent.execute(task, ws)
+            result = self.codingagent.execute(task, layout)
             state.artifacts.append(result["artifact"])
             task.status = TaskStatus.completed
             task.artifacts.append(result["artifact"].id)
@@ -162,7 +161,7 @@ class Controller:
                 task_ids=[task.id] if task else [],
             )
 
-    def _handle_repro_agent(self, state, planned, ws) -> Observation:
+    def _handle_repro_agent(self, state, planned, layout) -> Observation:
         task_id = planned.params.get("task_id", "")
         task = state.find_task(task_id)
         if task:
@@ -179,7 +178,7 @@ class Controller:
                 state.tasks.append(task)
                 task.status = TaskStatus.running
 
-            result = self.reproagent.execute(task, ws)
+            result = self.reproagent.execute(task, layout)
             state.artifacts.append(result["artifact"])
             task.status = TaskStatus.completed
             task.artifacts.append(result["artifact"].id)
@@ -203,7 +202,7 @@ class Controller:
                 task_ids=[task.id] if task else [],
             )
 
-    def _handle_classify_failure(self, state, planned, ws) -> Observation:
+    def _handle_classify_failure(self, state, planned, layout) -> Observation:
         task_id = planned.params.get("task_id", "")
         error = planned.params.get("error_message", "")
         classification = self.planner.classify_failure(task_id, error)
@@ -220,7 +219,7 @@ class Controller:
             task_ids=[task_id] if task_id else [],
         )
 
-    def _handle_ask_user(self, state, planned, ws) -> Observation:
+    def _handle_ask_user(self, state, planned, layout) -> Observation:
         question = planned.params.get("question", "Continue?")
         approved = self.confirm(question)
 
@@ -237,14 +236,14 @@ class Controller:
                 detail=f"User declined: {question[:200]}",
             )
 
-    def _handle_finish(self, state, planned, ws) -> Observation:
+    def _handle_finish(self, state, planned, layout) -> Observation:
         return Observation(
             action=ActionName.finish,
             result="ok",
             detail=planned.params.get("summary", "Run finished."),
         )
 
-    def _handle_unknown(self, state, planned, ws) -> Observation:
+    def _handle_unknown(self, state, planned, layout) -> Observation:
         return Observation(
             action=planned.action,
             result="error",

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..models import Artifact, ArtifactType, Producer, AgentTask
 from ..context import build_reproagent_context
+from ..workspace_layout import WorkspaceLayout
 
 
 class ReproAgentAdapter:
@@ -33,29 +34,47 @@ class ReproAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def execute(self, task: AgentTask, workspace_dir: str) -> dict:
+    def execute(self, task: AgentTask, layout: WorkspaceLayout) -> dict:
         spec = build_reproagent_context(task)
         task_num = task.id.replace("task_", "")
-        out_dir = Path(workspace_dir) / f"reproagent/repro_{task_num}"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        task_n = int(task_num) if task_num.isdigit() else 1
+
+        # Task-level directory (ResAgent owns this)
+        task_dir = layout.reproagent_task_dir(task_n)
+        task_dir.mkdir(parents=True, exist_ok=True)
+        # ReproAgent's actual workspace (nested inside task dir)
+        repro_ws = layout.reproagent_workspace(task_n)
+
+        layout.write_task_manifest(task_dir, task_id=task.id,
+                                   module="ReproAgent",
+                                   input_summary=task.input.get("experiment_goal", ""))
 
         if self.mock:
             raw = self._mock_execute(spec)
             returncode = 0
         else:
-            raw, returncode = self._call_execute(spec, out_dir)
+            raw, returncode = self._call_execute(spec, repro_ws)
+
+        # Write adapter result WITHOUT overwriting ReproAgent's own state.json
+        adapter_file = task_dir / layout.resagent_adapter_result()
+        with open(adapter_file, "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+
+        # Artifact path points to the actual result inside repo_workspace/
+        actual_result = repro_ws / "result.md"
+        if actual_result.exists():
+            artifact_path = layout.relpath(actual_result)
+        else:
+            artifact_path = layout.relpath(repro_ws / "result.md")  # best-effort
 
         artifact = Artifact(
             id=f"repro_result_{task_num}",
             type=ArtifactType.repro_result,
             producer=Producer.ReproAgent,
-            path=f"reproagent/repro_{task_num}/result.md",
+            path=artifact_path,
             summary=raw.get("summary", task.input.get("experiment_goal", ""))[:200],
             metadata={"returncode": returncode, "raw_result": raw},
         )
-
-        with open(out_dir / "state.json", "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
         return {
             "artifact": artifact,

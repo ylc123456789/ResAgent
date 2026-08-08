@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..models import Artifact, ArtifactType, Producer, AgentTask
 from ..context import build_codingagent_context
+from ..workspace_layout import WorkspaceLayout
 
 
 class CodingAgentAdapter:
@@ -31,29 +32,37 @@ class CodingAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def execute(self, task: AgentTask, workspace_dir: str) -> dict:
+    def execute(self, task: AgentTask, layout: WorkspaceLayout) -> dict:
         spec = build_codingagent_context(task)
         task_num = task.id.replace("task_", "")
+        task_n = int(task_num) if task_num.isdigit() else 1
 
-        out_dir = Path(workspace_dir) / f"codingagent/code_{task_num}"
+        out_dir = layout.codingagent_task_dir(task_n)
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        layout.write_task_manifest(out_dir, task_id=task.id,
+                                   module="CodingAgent",
+                                   input_summary=task.input.get("task_goal", ""))
 
         if self.mock:
             raw = self._mock_execute(spec)
         else:
             raw = self._call_execute(spec, out_dir)
 
+        # Write adapter result WITHOUT overwriting CodingAgent's own state.json
+        adapter_file = out_dir / layout.resagent_adapter_result()
+        with open(adapter_file, "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+
+        artifact_path = layout.relpath(out_dir / "patch_report.md")
         artifact = Artifact(
             id=f"code_patch_{task_num}",
             type=ArtifactType.code_patch,
             producer=Producer.CodingAgent,
-            path=f"codingagent/code_{task_num}/patch_report.md",
+            path=artifact_path,
             summary=raw.get("summary", task.input.get("task_goal", ""))[:200],
             metadata={"raw_result": raw},
         )
-
-        with open(out_dir / "state.json", "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
         return {"artifact": artifact, "raw": raw}
 

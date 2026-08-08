@@ -9,6 +9,7 @@ from resagent.models import (
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
+from resagent.workspace_layout import WorkspaceLayout
 
 
 def _make_state():
@@ -19,11 +20,15 @@ def _make_state():
     return ResearchState(run=run)
 
 
+def _make_layout():
+    return WorkspaceLayout(tempfile.mkdtemp(), "test-adapter-001")
+
+
 class TestExpAgentAdapter:
     def test_mock_advise(self):
         adapter = ExpAgentAdapter(mock=True)
         state = _make_state()
-        result = adapter.advise(state, tempfile.mkdtemp())
+        result = adapter.advise(state, _make_layout())
 
         assert result["artifact"] is not None
         assert result["artifact"].producer == Producer.ExpAgent
@@ -35,7 +40,7 @@ class TestExpAgentAdapter:
     def test_mock_creates_tasks(self):
         adapter = ExpAgentAdapter(mock=True)
         state = _make_state()
-        result = adapter.advise(state, tempfile.mkdtemp())
+        result = adapter.advise(state, _make_layout())
 
         tasks = result["tasks"]
         kinds = {t.kind for t in tasks}
@@ -50,7 +55,7 @@ class TestCodingAgentAdapter:
             kind=AgentKind.coding_task,
             input={"repo_path": "/tmp", "task_goal": "test coding task"}
         )
-        result = adapter.execute(task, tempfile.mkdtemp())
+        result = adapter.execute(task, _make_layout())
 
         assert result["artifact"] is not None
         assert result["artifact"].producer == Producer.CodingAgent
@@ -69,7 +74,7 @@ class TestReproAgentAdapter:
                 "experiment_goal": "reproduce baseline",
             }
         )
-        result = adapter.execute(task, tempfile.mkdtemp())
+        result = adapter.execute(task, _make_layout())
 
         assert result["artifact"] is not None
         assert result["artifact"].producer == Producer.ReproAgent
