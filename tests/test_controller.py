@@ -156,3 +156,64 @@ def test_submit_user_response_clears_question_and_resumes(tmp_path):
     assert state.pending_question is None
     assert state.run.status == RunStatus.running
     assert state.answered_questions[-1].response == "yes, proceed"
+
+
+def test_paused_run_never_calls_planner(tmp_path):
+    from resagent.models import PendingQuestion, RunStatus
+
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("planner must not run while paused")
+
+    state = init_state("paused-run", str(tmp_path), "Goal")
+    state.run.status = RunStatus.paused
+    state.pending_question = PendingQuestion(question_id="q_001", text="Proceed?")
+    ctrl = Controller(PanicPlanner(), ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True))
+
+    obs = ctrl.step(state)
+
+    assert obs.result == "user_response_required"
+    assert state.run.status == RunStatus.paused
+
+
+def test_transient_retry_runs_attempt_two_before_new_planning(tmp_path):
+    from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
+    from resagent.planner import PlannedAction
+
+    class OneRetryRepro:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, task, layout, attempt_number):
+            self.calls += 1
+            artifact = Artifact(id=f"repro_{attempt_number}", type=ArtifactType.repro_result,
+                                producer=Producer.ReproAgent, path=f"attempt_{attempt_number}.md")
+            if self.calls == 1:
+                return {"artifact": artifact, "outcome": "failed", "raw": {"summary": "connection timed out"}}
+            return {"artifact": artifact, "outcome": "completed", "raw": {"summary": "completed"}}
+
+    class OnePlanningCall:
+        def __init__(self, action):
+            self.action = action
+            self.calls = 0
+
+        def choose_action(self, state):
+            self.calls += 1
+            if self.calls > 1:
+                raise AssertionError("retry should run before new planning")
+            return self.action
+
+    state = init_state("retry-priority", str(tmp_path), "Reproduce baseline")
+    task = AgentTask(id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task)
+    state.tasks.append(task)
+    planner = OnePlanningCall(PlannedAction(ActionName.call_repro_agent, {"task_id": task.id}))
+    repro = OneRetryRepro()
+    ctrl = Controller(planner, ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True), repro)
+
+    ctrl.step(state)
+    ctrl.step(state)
+
+    assert planner.calls == 1
+    assert repro.calls == 2
+    assert task.status == TaskStatus.completed
+    assert [a.attempt_number for a in task.attempts] == [1, 2]

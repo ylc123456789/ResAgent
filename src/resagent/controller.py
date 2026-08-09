@@ -39,39 +39,34 @@ class Controller:
         self.confirm = confirm_callback or (lambda _: True)
 
     def step(self, state: ResearchState) -> Observation:
-        """One iteration of the agentic loop.
+        """Execute one action, respecting persisted pause and retry state."""
+        if state.pending_question is not None or state.run.status == RunStatus.paused:
+            observation = Observation(
+                action=ActionName.ask_user,
+                result="user_response_required",
+                detail="Run is paused until the pending question is answered.",
+            )
+            state.observations.append(observation)
+            state.run.status = RunStatus.paused
+            return observation
 
-        1. Planner chooses an action based on current state.
-        2. Controller executes the action via the appropriate adapter.
-        3. State is updated with the observation.
-        """
-        planned = self.planner.choose_action(state)
-
-        # Record decision
+        planned = self._next_retry_action(state) or self.planner.choose_action(state)
         dec_id = f"decision_{state.next_decision_number():03d}"
-        decision = DecisionRecord(
+        state.decisions.append(DecisionRecord(
             id=dec_id,
             made_by="ResAgent",
             reason=planned.reason,
             selected_action=planned.action.value,
-            alternatives=[],
-            evidence=[],
-        )
-        state.decisions.append(decision)
-
-        # Execute
+        ))
         observation = self._execute(state, planned)
-
         state.observations.append(observation)
         state.budget.api_calls_used += 1
 
-        # Update run-level status based on terminal actions
         if observation.action == ActionName.finish:
             state.run.status = RunStatus.completed
             state.current_summary = observation.detail
         elif observation.result == "user_response_required":
             state.run.status = RunStatus.paused
-
         return observation
 
     def run(self, state: ResearchState, max_steps: int = 50) -> ResearchState:
@@ -124,6 +119,11 @@ class Controller:
         artifact = result["artifact"]
         state.artifacts.append(artifact)
         for spawned in result.get("tasks", []):
+            supersedes = spawned.input.get("supersedes_task_id", "")
+            previous = state.find_task(supersedes) if supersedes else None
+            if previous is not None and previous.status in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
+                previous.status = TaskStatus.skipped
+                previous.error = f"Superseded by {spawned.id}."
             state.tasks.append(spawned)
 
         task_ids = [t.id for t in result.get("tasks", [])]
@@ -248,12 +248,33 @@ class Controller:
                 task_ids=[task.id],
             )
 
+    def _next_retry_action(self, state: ResearchState) -> PlannedAction | None:
+        """Retry transient failures before asking the planner for a new task."""
+        for task in state.tasks:
+            if not task.input.get("_retry_scheduled"):
+                continue
+            action = {
+                Producer.CodingAgent: ActionName.call_coding_agent,
+                Producer.ReproAgent: ActionName.call_repro_agent,
+            }.get(task.agent)
+            if action is None or task.status != TaskStatus.pending:
+                continue
+            task.input.pop("_retry_scheduled", None)
+            return PlannedAction(
+                action=action,
+                params={"task_id": task.id, **task.input},
+                reason=f"Retrying transient failure for {task.id}.",
+                analysis="Retry is prioritized over new planning.",
+            )
+        return None
+
     def _schedule_retry(self, state, task, error: str) -> bool:
-        """Return transient failures to the pending queue within retry budget."""
+        """Schedule a bounded transient retry for the next controller step."""
         task.error = error
         task.attempts[-1].error = error
         if RetryPolicy(state.budget.max_task_retries).should_retry(task, error):
             task.status = TaskStatus.pending
+            task.input["_retry_scheduled"] = True
             return True
         return False
 

@@ -321,6 +321,7 @@ class ExpAgentAdapter:
                     "command_goal": plan.get("command_goal", ""),
                     "search_query": plan.get("search_query", ""),
                     "question": plan.get("question", ""),
+                    "supersedes_task_id": plan.get("supersedes_task_id", ""),
                     # ── ResAgent fills these (or uses ExpAgent's if provided) ──
                     "workspace_path": _infer_workspace_path(
                         self._state, plan, action),
