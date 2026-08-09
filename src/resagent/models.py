@@ -197,7 +197,13 @@ class ResearchState(BaseModel):
         return None
 
     def next_task_number(self) -> int:
-        return sum(1 for t in self.tasks if t.agent != Producer.ExpAgent) + 1
+        """Return the next globally unique numeric task suffix."""
+        numbers = []
+        for task in self.tasks:
+            prefix, separator, suffix = task.id.partition("_")
+            if prefix == "task" and separator and suffix.isdigit():
+                numbers.append(int(suffix))
+        return max(numbers, default=0) + 1
 
     def next_decision_number(self) -> int:
         return len(self.decisions) + 1

@@ -169,3 +169,14 @@ class TestResearchState:
         assert len(data["artifacts"]) == 1
         assert len(data["tasks"]) == 1
         assert data["budget"]["max_tasks"] == 10
+
+
+def test_next_task_number_is_global_across_agents():
+    state = ResearchState(run=ResearchRun(run_id="task-ids", workspace_dir="/tmp", research_goal="goal"))
+    state.tasks.extend([
+        AgentTask(id="task_001", agent=Producer.ExpAgent, kind=AgentKind.advise),
+        AgentTask(id="task_002", agent=Producer.CodingAgent, kind=AgentKind.coding_task),
+        AgentTask(id="task_007", agent=Producer.ReproAgent, kind=AgentKind.repro_task),
+    ])
+
+    assert state.next_task_number() == 8
