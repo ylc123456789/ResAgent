@@ -81,3 +81,4 @@ def submit_user_response(state: ResearchState, question_id: str, response: str) 
     question.answered_at = datetime.now(timezone.utc)
     state.answered_questions.append(question)
     state.pending_question = None
+    state.run.status = RunStatus.running

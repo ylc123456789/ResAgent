@@ -16,7 +16,7 @@ from .planner import Planner, PlannedAction
 from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
-from .policies.retry import classify_transient
+from .policies.retry import RetryPolicy, classify_transient
 from .state import save_state
 from .workspace_layout import WorkspaceLayout
 
@@ -108,18 +108,39 @@ class Controller:
         return handler(state, planned, layout)
 
     def _handle_exp_agent(self, state, planned, layout) -> Observation:
-        result = self.expagent.advise(state, layout)
-        state.artifacts.append(result["artifact"])
+        task = None
+        task_id = planned.params.get("task_id", "")
+        if task_id:
+            task = self._require_task(state, planned, Producer.ExpAgent)
+            if isinstance(task, Observation):
+                return task
+            task.status = TaskStatus.running
+            task.attempts.append(Attempt(
+                attempt_number=len(task.attempts) + 1,
+                started_at=datetime.now(timezone.utc),
+            ))
 
-        for task in result.get("tasks", []):
-            state.tasks.append(task)
+        result = self.expagent.advise(state, layout)
+        artifact = result["artifact"]
+        state.artifacts.append(artifact)
+        for spawned in result.get("tasks", []):
+            state.tasks.append(spawned)
+
+        task_ids = [t.id for t in result.get("tasks", [])]
+        if task is not None:
+            task.status = TaskStatus.completed
+            task.artifacts.append(artifact.id)
+            task.attempts[-1].artifacts.append(artifact.id)
+            task.attempts[-1].finished_at = datetime.now(timezone.utc)
+            task_ids.insert(0, task.id)
+            state.budget.tasks_run += 1
 
         return Observation(
             action=ActionName.call_exp_agent,
             result="ok",
-            detail=planned.analysis,
-            artifact_ids=[result["artifact"].id],
-            task_ids=[t.id for t in result.get("tasks", [])],
+            detail=planned.analysis or result["raw"].get("summary", ""),
+            artifact_ids=[artifact.id],
+            task_ids=task_ids,
         )
 
     def _handle_coding_agent(self, state, planned, layout) -> Observation:
@@ -145,14 +166,15 @@ class Controller:
                 task.status = TaskStatus.needs_user_input
             else:
                 task.status = TaskStatus.failed
+                self._schedule_retry(state, task, str(result["raw"].get("summary", "CodingAgent failed")))
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
 
             return Observation(
                 action=ActionName.call_coding_agent,
-                result="ok",
-                detail=f"Coding task {task.id} completed.",
+                result="ok" if task.status == TaskStatus.completed else ("user_response_required" if task.status == TaskStatus.needs_user_input else "error"),
+                detail=result["raw"].get("summary", f"Coding task {task.id} {task.status.value}."),
                 artifact_ids=[result["artifact"].id],
                 task_ids=[task.id],
             )
@@ -161,6 +183,7 @@ class Controller:
             task.error = str(e)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].error = str(e)
+            self._schedule_retry(state, task, str(e))
             return Observation(
                 action=ActionName.call_coding_agent,
                 result="error",
@@ -202,6 +225,7 @@ class Controller:
                 obs_result = "user_response_required"
             else:
                 task.status = TaskStatus.failed
+                self._schedule_retry(state, task, str(result["raw"].get("summary", "ReproAgent failed")))
                 obs_result = "error"
 
             return Observation(
@@ -216,12 +240,22 @@ class Controller:
             task.error = str(e)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].error = str(e)
+            self._schedule_retry(state, task, str(e))
             return Observation(
                 action=ActionName.call_repro_agent,
                 result="error",
                 detail=str(e),
                 task_ids=[task.id],
             )
+
+    def _schedule_retry(self, state, task, error: str) -> bool:
+        """Return transient failures to the pending queue within retry budget."""
+        task.error = error
+        task.attempts[-1].error = error
+        if RetryPolicy(state.budget.max_task_retries).should_retry(task, error):
+            task.status = TaskStatus.pending
+            return True
+        return False
 
     def _require_task(self, state, planned, expected_agent):
         """Validate task_id and return the task, or an error Observation."""

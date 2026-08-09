@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .config import load_config
 from .orchestrator import init_run, build_controller, run_loop, resume_run, status
-from .state import save_state
+from .state import save_state, submit_user_response
 from .report import generate_all
 
 
@@ -67,6 +67,15 @@ def main():
     p_status.add_argument("--workspace", required=True, help="Workspace root dir")
     p_status.add_argument("--run-id", required=True, help="Run ID")
 
+    # -- answer --
+    p_answer = sub.add_parser("answer", help="Answer a paused run question and resume")
+    p_answer.add_argument("--workspace", required=True, help="Workspace root dir")
+    p_answer.add_argument("--run-id", required=True, help="Run ID")
+    p_answer.add_argument("--question-id", required=True, help="Pending question ID")
+    p_answer.add_argument("--response", required=True, help="User response text")
+    p_answer.add_argument("--mock", action="store_true", help="Mock all adapters + LLM")
+    p_answer.add_argument("--max-steps", type=int, default=30, help="Max loop steps after resuming")
+    _add_path_args(p_answer)
     # -- chat --
     p_chat = sub.add_parser("chat", help="Unified conversation entry (REPL)")
     p_chat.add_argument("--workspace", default="runs", help="Workspace root dir")
@@ -134,14 +143,17 @@ def _dispatch(args):
         if state is None:
             print(f"No run found: {args.workspace}/{args.run_id}")
             sys.exit(1)
-
-        ctrl = build_controller(cfg, mock=mock)
-        obs = ctrl.step(state)
+    elif args.command == "answer":
+        state = resume_run(args.workspace, args.run_id)
+        if state is None:
+            print(f"No run found: {args.workspace}/{args.run_id}")
+            sys.exit(1)
+        submit_user_response(state, args.question_id, args.response)
+        ctrl = build_controller(cfg, mock=args.mock)
+        state = run_loop(state, ctrl, max_steps=args.max_steps)
         save_state(state)
         generate_all(state)
-        print(f"Action: {obs.action.value}")
-        print(f"Result: {obs.result}")
-        print(f"Detail: {obs.detail}")
+        print(f"Run status: {state.run.status.value}")
 
     elif args.command == "status":
         print(status(args.workspace, args.run_id))

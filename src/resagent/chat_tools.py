@@ -27,7 +27,7 @@ from .config import Config
 from .conversation import conversation_dir
 from .models import UserDirective
 from .orchestrator import init_run, resume_run, status as run_status
-from .state import save_state
+from .state import save_state, submit_user_response
 
 
 @dataclass
@@ -317,6 +317,9 @@ class ChatTools:
         state = resume_run(conv.workspace_root, run_id)
         if state is None:
             return ToolOutcome(ok=False, text=f"No run found: {conv.workspace_root}/{run_id}")
+
+        if state.pending_question is not None:
+            submit_user_response(state, state.pending_question.question_id, instruction)
 
         state.user_directives.append(UserDirective(
             text=instruction,
