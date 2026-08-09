@@ -92,7 +92,7 @@ class ReproAgentAdapter:
         task = ReproTask(
             paper_url=spec.get("paper_url", ""),
             repo_url=spec.get("repo_url", ""),
-            workspace_dir=out_dir / "repo_workspace",
+            workspace_dir=out_dir,
             experiment_goal=spec.get("experiment_goal", ""),
             model=self.model,
             api_base=self.api_base,
