@@ -158,6 +158,17 @@ class UserDirective(BaseModel):
     source_conversation: str = ""
 
 
+class PendingQuestion(BaseModel):
+    """A question that requires user input before the run can continue."""
+    question_id: str
+    text: str
+    task_id: str | None = None
+    requested_fields: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    response: str | None = None
+    answered_at: datetime | None = None
+
+
 class ResearchState(BaseModel):
     """Full persistent state of a research run."""
     run: ResearchRun
@@ -168,6 +179,7 @@ class ResearchState(BaseModel):
     observations: list[Observation] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
     user_directives: list[UserDirective] = Field(default_factory=list)
+    pending_question: PendingQuestion | None = None
 
     # ── helpers ───────────────────────────────────────────────────────────
 

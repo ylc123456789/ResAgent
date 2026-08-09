@@ -9,13 +9,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .models import (
-    ResearchState, AgentTask, Attempt, DecisionRecord, Observation,
-    ActionName, Producer, TaskStatus, AgentKind, RunStatus,
+    ResearchState, AgentTask, Attempt, PendingQuestion, DecisionRecord,
+    Observation, ActionName, Producer, TaskStatus, AgentKind, RunStatus,
 )
 from .planner import Planner, PlannedAction
 from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
+from .policies.retry import classify_transient
 from .state import save_state
 from .workspace_layout import WorkspaceLayout
 
@@ -247,7 +248,11 @@ class Controller:
     def _handle_classify_failure(self, state, planned, layout) -> Observation:
         task_id = planned.params.get("task_id", "")
         error = planned.params.get("error_message", "")
-        classification = self.planner.classify_failure(task_id, error)
+
+        # Deterministic classifier first — avoids LLM call for known network errors
+        classification = classify_transient(error)
+        if classification.get("category") == "unknown":
+            classification = self.planner.classify_failure(task_id, error)
 
         detail = (
             f"Failure classified as: {classification.get('category', 'unknown')}. "
@@ -262,21 +267,30 @@ class Controller:
         )
 
     def _handle_ask_user(self, state, planned, layout) -> Observation:
-        question = planned.params.get("question", "Continue?")
-        approved = self.confirm(question)
+        question_text = planned.params.get("question", "Continue?")
 
-        if approved:
-            return Observation(
-                action=ActionName.ask_user,
-                result="ok",
-                detail=f"User approved: {question[:200]}",
-            )
-        else:
+        # Check if same question is already pending — no duplicate
+        if state.pending_question is not None:
             return Observation(
                 action=ActionName.ask_user,
                 result="user_response_required",
-                detail=f"User declined: {question[:200]}",
+                detail=f"Question already pending: {state.pending_question.text[:200]}",
             )
+
+        # Create persisted question and pause
+        import uuid
+        state.pending_question = PendingQuestion(
+            question_id=f"q_{uuid.uuid4().hex[:8]}",
+            text=question_text,
+            task_id=planned.params.get("task_id"),
+            requested_fields=planned.params.get("requested_fields", []),
+        )
+
+        return Observation(
+            action=ActionName.ask_user,
+            result="user_response_required",
+            detail=f"Question: {question_text[:200]}",
+        )
 
     def _handle_finish(self, state, planned, layout) -> Observation:
         return Observation(

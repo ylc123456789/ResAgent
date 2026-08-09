@@ -78,4 +78,4 @@ class TestReproAgentAdapter:
 
         assert result["artifact"] is not None
         assert result["artifact"].producer == Producer.ReproAgent
-        assert result["returncode"] == 0
+        assert result["outcome"] == "completed"

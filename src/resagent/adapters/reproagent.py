@@ -51,9 +51,9 @@ class ReproAgentAdapter:
 
         if self.mock:
             raw = self._mock_execute(spec)
-            returncode = 0
+            outcome = "completed"
         else:
-            raw, returncode = self._call_execute(spec, repro_ws)
+            raw, outcome = self._call_execute(spec, repro_ws)
 
         # Write adapter result WITHOUT overwriting ReproAgent's own state.json
         adapter_file = task_dir / layout.resagent_adapter_result()
@@ -73,18 +73,16 @@ class ReproAgentAdapter:
             producer=Producer.ReproAgent,
             path=artifact_path,
             summary=raw.get("summary", task.input.get("experiment_goal", ""))[:200],
-            metadata={"returncode": returncode, "raw_result": raw},
+            metadata={"outcome": outcome, "raw_result": raw},
         )
 
         return {
             "artifact": artifact,
+            "outcome": outcome,
             "raw": raw,
-            "stdout": raw.get("stdout", ""),
-            "stderr": raw.get("stderr", ""),
-            "returncode": returncode,
         }
 
-    def _call_execute(self, spec: dict, out_dir: Path) -> tuple[dict, int]:
+    def _call_execute(self, spec: dict, out_dir: Path) -> tuple[dict, str]:
         self._ensure_import()
         from reproagent.models import ReproTask
         from reproagent.controller import run_controller
@@ -137,10 +135,10 @@ class ReproAgentAdapter:
     def _mock_execute(self, spec: dict) -> dict:
         return {
             "status": "completed",
+            "outcome": "completed",
             "summary": f"Mock: reproduced {spec.get('experiment_goal', 'unknown')[:100]}",
             "steps": 5,
             "duration_seconds": 2.3,
-            "returncode": 0,
             "results": {"test_accuracy": 0.9902},
         }
 
