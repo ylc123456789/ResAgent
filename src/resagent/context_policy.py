@@ -1,37 +1,35 @@
-"""Context window policy — model-aware artifact/history selection.
-
-MVP: passes everything unfiltered.
-Future: apply model-specific token budgets, truncation, and summarization.
-"""
-
+"""Model-aware limits for packing ResAgent controller context."""
 from __future__ import annotations
 
-from .models import ResearchState
+from dataclasses import dataclass
+
+MODEL_CONTEXT_WINDOWS = {
+    "deepseek-v4-pro": 1_000_000,
+    "deepseek-v4-flash": 1_000_000,
+    "deepseek-chat": 128_000,
+    "deepseek-reasoner": 64_000,
+    "gpt-4.1": 1_000_000,
+    "gpt-4o": 128_000,
+}
 
 
+@dataclass(frozen=True)
 class ContextPolicy:
-    """Selects and trims state content to fit model context windows."""
+    context_window_tokens: int
+    input_budget_tokens: int
+    artifact_count: int
+    artifact_summary_chars: int
+    latest_result_chars: int
+    observation_count: int
+    observation_chars: int
 
-    def __init__(
-        self,
-        max_tokens: int = 128_000,
-        reserve_for_prompt: int = 8_000,
-        reserve_for_response: int = 4_000,
-    ):
-        self.max_tokens = max_tokens
-        self._budget = max_tokens - reserve_for_prompt - reserve_for_response
-
-    def available_tokens(self) -> int:
-        return self._budget
-
-    def fit_artifacts(self, state: ResearchState, limit: int = 20) -> int:
-        """Return how many recent artifacts can fit. MVP: just returns limit."""
-        return min(limit, len(state.artifacts))
-
-    def fit_observations(self, state: ResearchState, limit: int = 20) -> int:
-        """Return how many recent observations can fit. MVP: just returns limit."""
-        return min(limit, len(state.observations))
-
-    def fit_tasks(self, state: ResearchState) -> int:
-        """Return how many tasks to include. MVP: all of them."""
-        return len(state.tasks)
+    @classmethod
+    def for_model(cls, model: str | None) -> "ContextPolicy":
+        name = (model or "").lower().split("/")[-1]
+        window = MODEL_CONTEXT_WINDOWS.get(name, 128_000)
+        budget = max(8_000, window - max(8_000, window // 10))
+        if window >= 500_000:
+            return cls(window, budget, 20, 2_000, 16_000, 30, 2_000)
+        if window >= 128_000:
+            return cls(window, budget, 12, 800, 8_000, 15, 800)
+        return cls(window, budget, 8, 400, 4_000, 8, 400)

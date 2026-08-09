@@ -42,7 +42,7 @@ class Planner:
 
     def choose_action(self, state: ResearchState) -> PlannedAction:
         """Observe state and return the next planned action."""
-        context = build_controller_context(state)
+        context = build_controller_context(state, model=self.model)
 
         if self.mock:
             return self._mock_choose(state, context)

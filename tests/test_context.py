@@ -84,3 +84,20 @@ class TestAdapterContext:
         ctx = build_reproagent_context(task)
         assert ctx["paper_url"] == "https://arxiv.org/abs/1234"
         assert ctx["repo_url"] == "https://github.com/x/y"
+
+
+def test_latest_repro_result_keeps_final_metric_from_file(tmp_path):
+    run = ResearchRun(run_id="metric-run", workspace_dir=str(tmp_path), research_goal="Verify accuracy")
+    state = ResearchState(run=run)
+    result = tmp_path / "metric-run" / "tasks" / "repro" / "result.md"
+    result.parent.mkdir(parents=True)
+    result.write_text("start\\n" + "x" * 2500 + "\\nfinal test accuracy: 98.99%\\n")
+    state.artifacts.append(Artifact(
+        id="repro_001", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
+        path="tasks/repro/result.md", summary="reproduced successfully",
+    ))
+
+    context = build_controller_context(state, model="deepseek-v4-pro")
+
+    assert "98.99%" in context
+    assert "Latest Result Evidence" in context

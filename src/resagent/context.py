@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from .context_policy import ContextPolicy
 from .models import ResearchState, AgentTask, Artifact, Observation, DecisionRecord
 
 
 # ── Controller context (for LLM planner) ──────────────────────────────────────
 
-def build_controller_context(state: ResearchState) -> str:
+def build_controller_context(state: ResearchState, model: str | None = None) -> str:
     """Build a structured text summary of the research state for the LLM controller.
 
     This is the function that feeds the agentic loop. Keep it dense but
     complete enough that the LLM can make a good orchestration decision.
     """
+    policy = ContextPolicy.for_model(model)
     parts: list[str] = []
 
     # Goal
@@ -47,7 +51,7 @@ def build_controller_context(state: ResearchState) -> str:
         parts.append(f"\n## Tasks\n{tasks_text}")
 
     # Recent artifacts
-    artifacts_text = _format_artifacts(state.artifacts, max_items=10)
+    artifacts_text = _format_artifacts(state, policy)
     if artifacts_text:
         parts.append(f"\n## Recent Artifacts\n{artifacts_text}")
 
@@ -57,7 +61,7 @@ def build_controller_context(state: ResearchState) -> str:
         parts.append(f"\n## Recent Decisions\n{decisions_text}")
 
     # Recent observations
-    obs_text = _format_observations(state.observations, max_items=10)
+    obs_text = _format_observations(state.observations, policy)
     if obs_text:
         parts.append(f"\n## Recent Observations\n{obs_text}")
 
@@ -147,12 +151,36 @@ def _format_tasks(tasks: list[AgentTask]) -> str:
     return "\n".join(lines)
 
 
-def _format_artifacts(artifacts: list[Artifact], max_items: int) -> str:
+def _format_artifacts(state: ResearchState, policy: ContextPolicy) -> str:
     lines = []
-    for a in artifacts[-max_items:]:
-        lines.append(f"- [{a.id}] {a.producer.value} {a.type.value}: {a.summary[:120]}")
+    for artifact in state.artifacts[-policy.artifact_count:]:
+        lines.append(f"- [{artifact.id}] {artifact.producer.value} {artifact.type.value}: {_clip_middle(artifact.summary, policy.artifact_summary_chars)}")
+    evidence = _latest_result_evidence(state, policy.latest_result_chars)
+    if evidence:
+        lines.append("\n### Latest Result Evidence\n" + evidence)
     return "\n".join(lines)
 
+
+def _latest_result_evidence(state: ResearchState, limit: int) -> str:
+    for artifact in reversed(state.artifacts):
+        if artifact.type.value != "repro_result":
+            continue
+        path = (Path(state.run.workspace_dir) / state.run.run_id / artifact.path).resolve()
+        root = (Path(state.run.workspace_dir) / state.run.run_id).resolve()
+        if root not in path.parents or not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json"}:
+            return ""
+        try:
+            return f"[{artifact.id} @ {artifact.path}]\n" + _clip_middle(path.read_text(encoding="utf-8", errors="replace"), limit)
+        except OSError:
+            return ""
+    return ""
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    head = limit // 2
+    return text[:head] + "\n... [truncated] ...\n" + text[-(limit - head):]
 
 def _format_decisions(decisions: list[DecisionRecord], max_items: int) -> str:
     lines = []
@@ -161,10 +189,10 @@ def _format_decisions(decisions: list[DecisionRecord], max_items: int) -> str:
     return "\n".join(lines)
 
 
-def _format_observations(observations: list[Observation], max_items: int) -> str:
+def _format_observations(observations: list[Observation], policy: ContextPolicy) -> str:
     lines = []
-    for o in observations[-max_items:]:
-        lines.append(f"- [{o.action.value if o.action else '?'}] {o.result}: {o.detail[:120]}")
+    for o in observations[-policy.observation_count:]:
+        lines.append(f"- [{o.action.value if o.action else '?'}] {o.result}: {_clip_middle(o.detail, policy.observation_chars)}")
     return "\n".join(lines)
 
 
