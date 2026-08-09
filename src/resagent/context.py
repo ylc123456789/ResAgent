@@ -120,6 +120,7 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "timeout": task.input.get("timeout", 0),
         "mirror_profile": task.input.get("mirror_profile", ""),
         "codingagent_path": task.input.get("codingagent_path", ""),
+        "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
     }
 
 

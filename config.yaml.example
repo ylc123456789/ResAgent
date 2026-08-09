@@ -22,3 +22,7 @@ policy:
   confirm_before_external_runs: true
   confirm_before_long_tasks: true
   repro_mirror_profile: none  # none | cn | autodl
+  # Pre-downloaded dataset cache for reproduction tasks (TORCH_HOME/HF_HOME etc.
+  # are pointed here inside repro runs). Resolution: this value < $REPROAGENT_DATASET_CACHE.
+  # Example (AutoDL server): /root/autodl-tmp/datasets
+  repro_dataset_cache: ""

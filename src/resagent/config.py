@@ -33,6 +33,7 @@ class PolicyConfig:
     confirm_before_external_runs: bool = True
     confirm_before_long_tasks: bool = True
     repro_mirror_profile: str = "none"  # "none" | "cn" | "autodl"
+    repro_dataset_cache: str = ""       # e.g. /root/autodl-tmp/datasets (server)
 
 
 @dataclass
@@ -80,6 +81,9 @@ def load_config(path: str = "") -> Config:
         cfg.agents.reproagent = os.environ["REPROAGENT_PATH"]
     if os.environ.get("RESAGENT_MODEL"):
         cfg.llm.model = os.environ["RESAGENT_MODEL"]
+    if os.environ.get("REPROAGENT_DATASET_CACHE"):
+        # Honor reproagent's own env-var convention
+        cfg.policy.repro_dataset_cache = os.environ["REPROAGENT_DATASET_CACHE"]
 
     return cfg
 
@@ -131,6 +135,9 @@ def _apply_yaml(cfg: Config, path: str) -> None:
         )
         cfg.policy.repro_mirror_profile = pol.get(
             "repro_mirror_profile", cfg.policy.repro_mirror_profile
+        )
+        cfg.policy.repro_dataset_cache = pol.get(
+            "repro_dataset_cache", cfg.policy.repro_dataset_cache
         )
 
     chat = data.get("chat", {})

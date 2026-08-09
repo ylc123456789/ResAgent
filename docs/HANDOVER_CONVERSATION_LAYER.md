@@ -42,6 +42,11 @@ chat:
   default_advance_steps: 3   # start/advance_run 每次执行的 run loop 步数
   max_steps_per_turn: 5      # 硬上限，防止对话层长跑阻塞
   max_tool_calls_per_turn: 4
+
+policy:
+  # 预下载数据集缓存目录（reproagent 专用，TORCH_HOME/HF_HOME 等会指向它）。
+  # 也可用环境变量 REPROAGENT_DATASET_CACHE（优先级更高）。
+  repro_dataset_cache: /root/autodl-tmp/datasets   # AutoDL 服务器示例
 ```
 
 ## 3. 本次交付文件地图

@@ -31,3 +31,25 @@ def test_env_beats_yaml(monkeypatch, tmp_path):
                          encoding="utf-8")
     cfg = load_config(str(yaml_path))
     assert cfg.workspace.default_runs_dir == "/data/env_ws"
+
+
+def test_repro_dataset_cache_env(monkeypatch):
+    """reproagent's own env-var convention must flow into config."""
+    monkeypatch.setenv("REPROAGENT_DATASET_CACHE", "/root/autodl-tmp/datasets")
+    cfg = load_config("")
+    assert cfg.policy.repro_dataset_cache == "/root/autodl-tmp/datasets"
+
+
+def test_repro_dataset_cache_yaml(monkeypatch, tmp_path):
+    monkeypatch.delenv("REPROAGENT_DATASET_CACHE", raising=False)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("policy:\n  repro_dataset_cache: /data/ds\n",
+                         encoding="utf-8")
+    cfg = load_config(str(yaml_path))
+    assert cfg.policy.repro_dataset_cache == "/data/ds"
+
+
+def test_repro_dataset_cache_default_empty(monkeypatch):
+    monkeypatch.delenv("REPROAGENT_DATASET_CACHE", raising=False)
+    cfg = load_config("")
+    assert cfg.policy.repro_dataset_cache == ""

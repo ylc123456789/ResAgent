@@ -26,6 +26,7 @@ class ReproAgentAdapter:
         api_base: str = "https://api.deepseek.com",
         api_key_env: str = "DEEPSEEK_API_KEY",
         mirror_profile: str = "none",
+        dataset_cache_dir: str = "",
         mock: bool = False,
     ):
         self.module_path = module_path
@@ -33,6 +34,7 @@ class ReproAgentAdapter:
         self.api_base = api_base
         self.api_key_env = api_key_env
         self.mirror_profile = mirror_profile
+        self.dataset_cache_dir = dataset_cache_dir
         self.mock = mock
         self._imported = False
 
@@ -102,6 +104,10 @@ class ReproAgentAdapter:
             enable_coding_agent=bool(spec.get("codingagent_path")),
             codingagent_path=Path(spec["codingagent_path"]) if spec.get("codingagent_path") else None,
             mirror_profile=spec.get("mirror_profile") or self.mirror_profile,
+            # Dataset cache: per-task value (if any) wins; otherwise the
+            # system-wide default from config/env. Without this, ReproAgent's
+            # cache mechanism is silently disabled under orchestration.
+            dataset_cache_dir=spec.get("dataset_cache_dir") or self.dataset_cache_dir,
         )
 
         start = time.time()

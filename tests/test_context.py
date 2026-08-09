@@ -85,6 +85,22 @@ class TestAdapterContext:
         assert ctx["paper_url"] == "https://arxiv.org/abs/1234"
         assert ctx["repo_url"] == "https://github.com/x/y"
 
+    def test_reproagent_context_includes_dataset_cache(self):
+        task = AgentTask(
+            id="t1", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task,
+            input={"paper_url": "p", "repo_url": "r",
+                   "dataset_cache_dir": "/data/ds"}
+        )
+        ctx = build_reproagent_context(task)
+        assert ctx["dataset_cache_dir"] == "/data/ds"
+        # absent -> empty string, never dropped from the spec dict
+        task2 = AgentTask(
+            id="t2", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task, input={},
+        )
+        assert build_reproagent_context(task2)["dataset_cache_dir"] == ""
+
 
 def test_latest_repro_result_keeps_final_metric_from_file(tmp_path):
     run = ResearchRun(run_id="metric-run", workspace_dir=str(tmp_path), research_goal="Verify accuracy")
