@@ -32,6 +32,7 @@ class PolicyConfig:
     max_task_retries: int = 2
     confirm_before_external_runs: bool = True
     confirm_before_long_tasks: bool = True
+    repro_mirror_profile: str = "none"  # "none" | "cn" | "autodl"
 
 
 @dataclass
@@ -125,6 +126,9 @@ def _apply_yaml(cfg: Config, path: str) -> None:
         )
         cfg.policy.confirm_before_long_tasks = pol.get(
             "confirm_before_long_tasks", cfg.policy.confirm_before_long_tasks
+        )
+        cfg.policy.repro_mirror_profile = pol.get(
+            "repro_mirror_profile", cfg.policy.repro_mirror_profile
         )
 
     chat = data.get("chat", {})

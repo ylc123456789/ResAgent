@@ -18,3 +18,4 @@ policy:
   max_task_retries: 2
   confirm_before_external_runs: true
   confirm_before_long_tasks: true
+  repro_mirror_profile: none  # none | cn | autodl

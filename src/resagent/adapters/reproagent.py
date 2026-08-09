@@ -25,12 +25,14 @@ class ReproAgentAdapter:
         model: str = "deepseek-v4-pro",
         api_base: str = "https://api.deepseek.com",
         api_key_env: str = "DEEPSEEK_API_KEY",
+        mirror_profile: str = "none",
         mock: bool = False,
     ):
         self.module_path = module_path
         self.model = model
         self.api_base = api_base
         self.api_key_env = api_key_env
+        self.mirror_profile = mirror_profile
         self.mock = mock
         self._imported = False
 
@@ -99,7 +101,7 @@ class ReproAgentAdapter:
             mock_llm=False,
             enable_coding_agent=bool(spec.get("codingagent_path")),
             codingagent_path=Path(spec["codingagent_path"]) if spec.get("codingagent_path") else None,
-            mirror_profile=spec.get("mirror_profile") or "autodl",
+            mirror_profile=spec.get("mirror_profile") or self.mirror_profile,
         )
 
         start = time.time()

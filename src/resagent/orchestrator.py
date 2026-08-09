@@ -95,6 +95,7 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
             model=config.llm.model,
             api_base=config.llm.api_base,
             api_key_env=config.llm.api_key_env,
+            mirror_profile=config.policy.repro_mirror_profile,
             mock=mock,
         ),
     )
