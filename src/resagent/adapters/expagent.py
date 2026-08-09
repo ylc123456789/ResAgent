@@ -397,7 +397,7 @@ def _infer_workspace_path(state, plan: dict, action: dict) -> str:
 
     # 2. Try extracting from research goal
     goal = state.run.research_goal if state else ""
-    for pattern in [r'(/[^\s,;.]+)', r'([A-Za-z]:\\[^\s,;.]+)']:
+    for pattern in [r'(/[^\s,;]+)', r'([A-Za-z]:\\[^\s,;]+)']:
         match = re.search(pattern, goal)
         if match:
             path = match.group(1).rstrip(".")
