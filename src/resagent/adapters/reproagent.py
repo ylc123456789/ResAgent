@@ -99,7 +99,7 @@ class ReproAgentAdapter:
             mock_llm=False,
             enable_coding_agent=bool(spec.get("codingagent_path")),
             codingagent_path=Path(spec["codingagent_path"]) if spec.get("codingagent_path") else None,
-            mirror_profile=spec.get("mirror_profile") or "none",
+            mirror_profile=spec.get("mirror_profile") or "autodl",
         )
 
         start = time.time()
