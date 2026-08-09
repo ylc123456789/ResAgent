@@ -6,8 +6,10 @@ records observations, and repeats until finish or blocked.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from .models import (
-    ResearchState, AgentTask, DecisionRecord, Observation,
+    ResearchState, AgentTask, Attempt, DecisionRecord, Observation,
     ActionName, Producer, TaskStatus, AgentKind, RunStatus,
 )
 from .planner import Planner, PlannedAction
@@ -120,27 +122,22 @@ class Controller:
         )
 
     def _handle_coding_agent(self, state, planned, layout) -> Observation:
-        task_id = planned.params.get("task_id", "")
-        task = state.find_task(task_id)
-        if task:
-            task.status = TaskStatus.running
+        task = self._require_task(state, planned, Producer.CodingAgent)
+        if isinstance(task, Observation):
+            return task  # error observation from _require_task
+
+        task.status = TaskStatus.running
+        attempt_num = len(task.attempts) + 1
+        task.attempts.append(Attempt(attempt_number=attempt_num,
+                                    started_at=datetime.now(timezone.utc)))
 
         try:
-            # Find or create task
-            if not task:
-                task = AgentTask(
-                    id=f"task_{state.next_task_number():03d}",
-                    agent=Producer.CodingAgent,
-                    kind=AgentKind.coding_task,
-                    input=planned.params,
-                )
-                state.tasks.append(task)
-                task.status = TaskStatus.running
-
             result = self.codingagent.execute(task, layout)
             state.artifacts.append(result["artifact"])
-            task.status = TaskStatus.completed
             task.artifacts.append(result["artifact"].id)
+            task.status = TaskStatus.completed
+            task.attempts[-1].finished_at = datetime.now(timezone.utc)
+            task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
 
             return Observation(
@@ -151,56 +148,101 @@ class Controller:
                 task_ids=[task.id],
             )
         except Exception as e:
-            if task:
-                task.status = TaskStatus.failed
-                task.error = str(e)
+            task.status = TaskStatus.failed
+            task.error = str(e)
+            task.attempts[-1].finished_at = datetime.now(timezone.utc)
+            task.attempts[-1].error = str(e)
             return Observation(
                 action=ActionName.call_coding_agent,
                 result="error",
                 detail=str(e),
-                task_ids=[task.id] if task else [],
+                task_ids=[task.id],
             )
 
     def _handle_repro_agent(self, state, planned, layout) -> Observation:
-        task_id = planned.params.get("task_id", "")
-        task = state.find_task(task_id)
-        if task:
-            task.status = TaskStatus.running
+        task = self._require_task(state, planned, Producer.ReproAgent)
+        if isinstance(task, Observation):
+            return task
+
+        task.status = TaskStatus.running
+        attempt_num = len(task.attempts) + 1
+        task.attempts.append(Attempt(attempt_number=attempt_num,
+                                    started_at=datetime.now(timezone.utc)))
 
         try:
-            if not task:
-                task = AgentTask(
-                    id=f"task_{state.next_task_number():03d}",
-                    agent=Producer.ReproAgent,
-                    kind=AgentKind.repro_task,
-                    input=planned.params,
-                )
-                state.tasks.append(task)
-                task.status = TaskStatus.running
-
             result = self.reproagent.execute(task, layout)
             state.artifacts.append(result["artifact"])
-            task.status = TaskStatus.completed
             task.artifacts.append(result["artifact"].id)
+            task.attempts[-1].finished_at = datetime.now(timezone.utc)
+            task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
+
+            outcome = result.get("outcome", result.get("returncode") == 0 and "completed" or "failed")
+            if outcome == "completed":
+                task.status = TaskStatus.completed
+                obs_result = "ok"
+            elif outcome == "completed_with_warnings":
+                task.status = TaskStatus.completed
+                task.error = result["raw"].get("summary", "")[:200]
+                obs_result = "ok"
+            elif outcome == "blocked":
+                task.status = TaskStatus.blocked
+                obs_result = "error"
+            elif outcome == "needs_user_input":
+                task.status = TaskStatus.needs_user_input
+                obs_result = "user_response_required"
+            else:
+                task.status = TaskStatus.failed
+                obs_result = "error"
 
             return Observation(
                 action=ActionName.call_repro_agent,
-                result="ok" if result["returncode"] == 0 else "error",
+                result=obs_result,
                 detail=result["raw"].get("summary", ""),
                 artifact_ids=[result["artifact"].id],
                 task_ids=[task.id],
             )
         except Exception as e:
-            if task:
-                task.status = TaskStatus.failed
-                task.error = str(e)
+            task.status = TaskStatus.failed
+            task.error = str(e)
+            task.attempts[-1].finished_at = datetime.now(timezone.utc)
+            task.attempts[-1].error = str(e)
             return Observation(
                 action=ActionName.call_repro_agent,
                 result="error",
                 detail=str(e),
-                task_ids=[task.id] if task else [],
+                task_ids=[task.id],
             )
+
+    def _require_task(self, state, planned, expected_agent):
+        """Validate task_id and return the task, or an error Observation."""
+        task_id = planned.params.get("task_id", "")
+        if not task_id:
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=f"Missing task_id. {expected_agent.value} calls require a task_id from the pending task list.",
+            )
+        task = state.find_task(task_id)
+        if task is None:
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=f"Task {task_id} not found. Available: {[t.id for t in state.tasks]}",
+            )
+        if task.agent != expected_agent:
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=f"Task {task_id} belongs to {task.agent.value}, not {expected_agent.value}.",
+            )
+        if task.status not in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=f"Task {task_id} is {task.status.value}, not pending/failed/blocked.",
+            )
+        return task
 
     def _handle_classify_failure(self, state, planned, layout) -> Observation:
         task_id = planned.params.get("task_id", "")

@@ -285,6 +285,7 @@ class ExpAgentAdapter:
             "coding_task": (AgentKind.coding_task, Producer.CodingAgent),
             "repro_task": (AgentKind.repro_task, Producer.ReproAgent),
             "run_task": (AgentKind.repro_task, Producer.ReproAgent),
+            "result_analysis": (AgentKind.advise, Producer.ExpAgent),
             "literature_search": (AgentKind.advise, Producer.ExpAgent),
             "ask_user": (AgentKind.ask_user, Producer.ResAgent),
         }

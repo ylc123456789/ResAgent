@@ -130,8 +130,20 @@ def _format_tasks(tasks: list[AgentTask]) -> str:
     for t in tasks:
         marker = _status_marker(t.status.value)
         err = f" ({t.error[:80]})" if t.error else ""
+        attempts = f" attempts={len(t.attempts)}" if t.attempts else ""
         lines.append(f"- {marker} [{t.id}] {t.agent.value}/{t.kind.value} "
-                     f"pri={t.priority.value}{err}")
+                     f"pri={t.priority.value}{attempts}{err}")
+        inp = t.input
+        if inp.get("paper_url"):
+            lines.append(f"    paper_url: {inp['paper_url'][:100]}")
+        if inp.get("repo_url"):
+            lines.append(f"    repo_url: {inp['repo_url'][:100]}")
+        if inp.get("experiment_goal"):
+            lines.append(f"    experiment_goal: {inp['experiment_goal'][:120]}")
+        if inp.get("workspace_path"):
+            lines.append(f"    workspace_path: {inp['workspace_path'][:100]}")
+        if inp.get("task_goal"):
+            lines.append(f"    task_goal: {inp['task_goal'][:120]}")
     return "\n".join(lines)
 
 

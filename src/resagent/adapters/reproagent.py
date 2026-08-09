@@ -107,14 +107,25 @@ class ReproAgentAdapter:
         start = time.time()
         try:
             result_state = run_controller(task)
-            returncode = 0 if result_state.status == "completed" else 1
+            status = result_state.status
+            if status == "completed":
+                outcome = "completed"
+            elif status == "completed_with_failures":
+                outcome = "completed_with_warnings"
+            elif status == "blocked":
+                outcome = "blocked"
+            elif status == "needs_user_input":
+                outcome = "needs_user_input"
+            else:
+                outcome = "failed"
             raw = {
-                "status": result_state.status,
-                "summary": result_state.final_summary or f"Reproduction completed in {time.time() - start:.0f}s",
+                "status": status,
+                "outcome": outcome,
+                "summary": result_state.final_summary or f"Reproduction finished in {time.time() - start:.0f}s",
                 "steps": len(result_state.steps),
                 "duration_seconds": round(time.time() - start, 1),
             }
-            return raw, returncode
+            return raw, outcome
         except Exception as e:
             return {
                 "status": "error",
