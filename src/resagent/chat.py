@@ -357,6 +357,7 @@ def run_repl(conv: ConversationState, chat: ChatLoop, tools: ChatTools,
              workspace_root: str) -> None:
     """Interactive chat REPL."""
     print(f"ResAgent chat — conversation {conv.conversation_id}")
+    print(f"Workspace: {workspace_root} (all artifacts land here)")
     print("Type your message, /help for commands, /quit to exit.")
     while True:
         try:

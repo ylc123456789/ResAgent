@@ -12,7 +12,10 @@ llm:
   model: deepseek-v4-pro
 
 workspace:
+  # Where runs/conversations land when --workspace is not given.
+  # Resolution: --workspace CLI > $RESAGENT_WORKSPACE env > this value > ./runs
   default_runs_dir: runs
+  # Example (AutoDL server): /root/autodl-tmp/resagent-workspace/runs
 
 policy:
   max_task_retries: 2

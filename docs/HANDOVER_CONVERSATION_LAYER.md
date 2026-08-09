@@ -18,6 +18,10 @@
 source ~/miniconda3/etc/profile.d/conda.sh && conda activate ResAgent
 cd /home/cyl/ResAgent && pip install -e ".[dev]"
 
+# 产物根目录（可选）：不设则默认 ./runs（相对当前目录）
+# 解析链：--workspace CLI > $RESAGENT_WORKSPACE > config.yaml workspace.default_runs_dir > ./runs
+export RESAGENT_WORKSPACE=/root/autodl-tmp/resagent-workspace/runs
+
 python -m pytest tests/ -q          # 70 passed，全程 mock，无需 API key
 
 # 真实运行（DEEPSEEK_API_KEY 在 ~/.bashrc 中，bash -lc 会自动加载）

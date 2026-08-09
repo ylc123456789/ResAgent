@@ -41,7 +41,8 @@ def main():
     # -- init --
     p_init = sub.add_parser("init", help="Create a new research run")
     p_init.add_argument("--goal", required=True, help="Path to idea.md or goal text")
-    p_init.add_argument("--workspace", default="runs", help="Workspace root dir")
+    p_init.add_argument("--workspace", default="",
+                        help="Workspace root dir (default: $RESAGENT_WORKSPACE > config.yaml > ./runs)")
     _add_path_args(p_init)
 
     # -- run --
@@ -78,7 +79,8 @@ def main():
     _add_path_args(p_answer)
     # -- chat --
     p_chat = sub.add_parser("chat", help="Unified conversation entry (REPL)")
-    p_chat.add_argument("--workspace", default="runs", help="Workspace root dir")
+    p_chat.add_argument("--workspace", default="",
+                        help="Workspace root dir (default: $RESAGENT_WORKSPACE > config.yaml > ./runs)")
     p_chat.add_argument("--conversation-id", default="",
                         help="Resume an existing conversation by ID")
     p_chat.add_argument("--resume", default="", help="Alias for --conversation-id")
@@ -110,7 +112,8 @@ def _dispatch(args):
 
     if args.command == "init":
         goal = _read_goal(args.goal)
-        state = init_run(goal=goal, workspace_root=args.workspace, config=cfg)
+        workspace = args.workspace or cfg.workspace.default_runs_dir
+        state = init_run(goal=goal, workspace_root=workspace, config=cfg)
         generate_all(state)
         print(f"Created run: {state.run.run_id}")
         print(f"Workspace: {state.run.workspace_dir}/{state.run.run_id}")
@@ -165,7 +168,7 @@ def _dispatch(args):
         from .conversation import load_conversation, new_conversation
 
         mock = getattr(args, "mock", False)
-        ws = str(Path(args.workspace).resolve())
+        ws = str(Path(args.workspace or cfg.workspace.default_runs_dir).resolve())
 
         registry = CapabilityRegistry(cfg)
         registry.load()

@@ -70,6 +70,8 @@ def load_config(path: str = "") -> Config:
         _apply_yaml(cfg, yaml_path)
 
     # Env var overrides
+    if os.environ.get("RESAGENT_WORKSPACE"):
+        cfg.workspace.default_runs_dir = os.environ["RESAGENT_WORKSPACE"]
     if os.environ.get("EXPAGENT_PATH"):
         cfg.agents.expagent = os.environ["EXPAGENT_PATH"]
     if os.environ.get("CODINGAGENT_PATH"):
