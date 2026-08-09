@@ -34,19 +34,19 @@ class ReproAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def execute(self, task: AgentTask, layout: WorkspaceLayout) -> dict:
+    def execute(self, task: AgentTask, layout: WorkspaceLayout, attempt_number: int = 1) -> dict:
         spec = build_reproagent_context(task)
         task_num = task.id.replace("task_", "")
         task_n = int(task_num) if task_num.isdigit() else 1
 
         # Task-level directory (ResAgent owns this)
-        task_dir = layout.reproagent_task_dir(task_n)
+        task_dir = layout.reproagent_attempt_dir(task_n, attempt_number)
         task_dir.mkdir(parents=True, exist_ok=True)
         # ReproAgent's actual workspace (nested inside task dir)
-        repro_ws = layout.reproagent_workspace(task_n)
+        repro_ws = layout.reproagent_workspace(task_n, attempt_number)
 
         layout.write_task_manifest(task_dir, task_id=task.id,
-                                   module="ReproAgent",
+                                   module="ReproAgent", attempt=attempt_number,
                                    input_summary=task.input.get("experiment_goal", ""))
 
         if self.mock:
@@ -130,7 +130,7 @@ class ReproAgentAdapter:
                 "summary": f"Reproduction failed: {e}",
                 "duration_seconds": round(time.time() - start, 1),
                 "error": str(e),
-            }, 1
+            }, "failed"
 
     def _mock_execute(self, spec: dict) -> dict:
         return {

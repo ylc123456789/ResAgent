@@ -180,6 +180,7 @@ class ResearchState(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     user_directives: list[UserDirective] = Field(default_factory=list)
     pending_question: PendingQuestion | None = None
+    answered_questions: list[PendingQuestion] = Field(default_factory=list)
 
     # ── helpers ───────────────────────────────────────────────────────────
 

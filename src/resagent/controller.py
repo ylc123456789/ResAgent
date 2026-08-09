@@ -133,10 +133,18 @@ class Controller:
                                     started_at=datetime.now(timezone.utc)))
 
         try:
-            result = self.codingagent.execute(task, layout)
+            result = self.codingagent.execute(task, layout, attempt_num)
             state.artifacts.append(result["artifact"])
             task.artifacts.append(result["artifact"].id)
-            task.status = TaskStatus.completed
+            outcome = result.get("outcome", "completed")
+            if outcome in {"completed", "completed_with_warnings"}:
+                task.status = TaskStatus.completed
+            elif outcome == "blocked":
+                task.status = TaskStatus.blocked
+            elif outcome == "needs_user_input":
+                task.status = TaskStatus.needs_user_input
+            else:
+                task.status = TaskStatus.failed
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
@@ -171,7 +179,7 @@ class Controller:
                                     started_at=datetime.now(timezone.utc)))
 
         try:
-            result = self.reproagent.execute(task, layout)
+            result = self.reproagent.execute(task, layout, attempt_num)
             state.artifacts.append(result["artifact"])
             task.artifacts.append(result["artifact"].id)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)

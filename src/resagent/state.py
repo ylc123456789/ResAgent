@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import ResearchState, ResearchRun
+from .models import ResearchState, ResearchRun, RunStatus
 
 
 def workspace_path(workspace_dir: str, run_id: str) -> Path:
@@ -67,3 +67,17 @@ def _serialize(state: ResearchState) -> dict:
 
 def _deserialize(payload: dict) -> ResearchState:
     return ResearchState.model_validate(payload)
+
+
+def submit_user_response(state: ResearchState, question_id: str, response: str) -> None:
+    """Persist a response to the currently pending question and resume the run."""
+    question = state.pending_question
+    if question is None or question.question_id != question_id:
+        raise ValueError(f"No pending question with id: {question_id}")
+    answer = response.strip()
+    if not answer:
+        raise ValueError("User response must not be empty.")
+    question.response = answer
+    question.answered_at = datetime.now(timezone.utc)
+    state.answered_questions.append(question)
+    state.pending_question = None

@@ -32,16 +32,16 @@ class CodingAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def execute(self, task: AgentTask, layout: WorkspaceLayout) -> dict:
+    def execute(self, task: AgentTask, layout: WorkspaceLayout, attempt_number: int = 1) -> dict:
         spec = build_codingagent_context(task)
         task_num = task.id.replace("task_", "")
         task_n = int(task_num) if task_num.isdigit() else 1
 
-        out_dir = layout.codingagent_task_dir(task_n)
+        out_dir = layout.codingagent_attempt_dir(task_n, attempt_number)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         layout.write_task_manifest(out_dir, task_id=task.id,
-                                   module="CodingAgent",
+                                   module="CodingAgent", attempt=attempt_number,
                                    input_summary=task.input.get("task_goal", ""))
 
         if self.mock:
@@ -64,7 +64,10 @@ class CodingAgentAdapter:
             metadata={"raw_result": raw},
         )
 
-        return {"artifact": artifact, "raw": raw}
+        outcome = raw.get("status", "completed")
+        if outcome not in {"completed", "completed_with_warnings", "blocked", "needs_user_input", "failed"}:
+            outcome = "completed" if raw.get("verification_passed", True) else "failed"
+        return {"artifact": artifact, "raw": raw, "outcome": outcome}
 
     # ── ad-hoc read-only QA (conversation layer, no ResearchRun) ───────────
 

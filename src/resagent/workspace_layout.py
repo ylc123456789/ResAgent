@@ -63,13 +63,21 @@ class WorkspaceLayout:
         """Directory for one CodingAgent task — passed as output_dir."""
         return self.tasks_dir / "codingagent" / f"task_{n:03d}"
 
+    def codingagent_attempt_dir(self, n: int, attempt: int) -> Path:
+        """Directory owned by one CodingAgent execution attempt."""
+        return self.codingagent_task_dir(n) / f"attempt_{attempt:03d}"
+
     def reproagent_task_dir(self, n: int) -> Path:
         """Directory for one ReproAgent task."""
         return self.tasks_dir / "reproagent" / f"task_{n:03d}"
 
-    def reproagent_workspace(self, n: int) -> Path:
-        """ReproAgent's workspace_dir — passed to run_controller()."""
-        return self.reproagent_task_dir(n) / "repo_workspace"
+    def reproagent_attempt_dir(self, n: int, attempt: int) -> Path:
+        """Directory owned by one ReproAgent execution attempt."""
+        return self.reproagent_task_dir(n) / f"attempt_{attempt:03d}"
+
+    def reproagent_workspace(self, n: int, attempt: int = 1) -> Path:
+        """ReproAgent workspace passed to run_controller()."""
+        return self.reproagent_attempt_dir(n, attempt) / "repo_workspace"
 
     # -- adapter-owned files within task directories --
 
