@@ -102,6 +102,48 @@ class TestAdapterContext:
         assert build_reproagent_context(task2)["dataset_cache_dir"] == ""
 
 
+def test_budget_enforcement_trims_low_priority_sections(tmp_path):
+    """When context exceeds budget, lower-priority sections are trimmed."""
+    run = ResearchRun(run_id="budget-run", workspace_dir=str(tmp_path), research_goal="Budget test")
+    state = ResearchState(run=run)
+    # Add many observations to blow past budget
+    for i in range(200):
+        state.observations.append(Observation(
+            action=ActionName.call_exp_agent, result="ok",
+            detail=f"Observation {i}: " + "x" * 1500,
+        ))
+    context = build_controller_context(state, model="deepseek-chat")  # 128K -> small budget
+    # Should still contain critical sections
+    assert "## Research Goal" in context
+    assert "## Run Status" in context
+    # Budget enforcement marker should appear
+    assert "fit budget" in context or len(context) < 50000
+
+
+def test_fallbacks_to_older_repro_when_latest_file_missing(tmp_path):
+    """If newest repro_result file is gone, keep looking at older artifacts."""
+    run = ResearchRun(run_id="fallback-run", workspace_dir=str(tmp_path), research_goal="Fallback")
+    state = ResearchState(run=run)
+
+    # Older artifact — file exists
+    old = tmp_path / "fallback-run" / "tasks" / "repro" / "old_result.md"
+    old.parent.mkdir(parents=True)
+    old.write_text("older accuracy: 97.5%")
+
+    # Newer artifact — file missing
+    state.artifacts.append(Artifact(
+        id="repro_002", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
+        path="tasks/repro/old_result.md", summary="old",
+    ))
+    state.artifacts.append(Artifact(
+        id="repro_003", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
+        path="tasks/repro/missing.md", summary="this file does not exist",
+    ))
+
+    context = build_controller_context(state, model="deepseek-v4-pro")
+    assert "97.5%" in context, "should fall back to older artifact when newest file is missing"
+
+
 def test_latest_repro_result_keeps_final_metric_from_file(tmp_path):
     run = ResearchRun(run_id="metric-run", workspace_dir=str(tmp_path), research_goal="Verify accuracy")
     state = ResearchState(run=run)

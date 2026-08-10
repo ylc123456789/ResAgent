@@ -17,12 +17,13 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
     complete enough that the LLM can make a good orchestration decision.
     """
     policy = ContextPolicy.for_model(model)
+    budget_chars = policy.input_budget_tokens * 3  # ~3 chars/token rough estimate
     parts: list[str] = []
 
-    # Goal
+    # Goal (always kept)
     parts.append(f"## Research Goal\n{state.run.research_goal}")
 
-    # Status
+    # Status (always kept)
     parts.append(f"\n## Run Status\n"
                  f"- Status: {state.run.status.value}\n"
                  f"- Tasks: {len(state.tasks)} total, "
@@ -34,23 +35,23 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
                  f"- Budget: {state.budget.tasks_run}/{state.budget.max_tasks} tasks, "
                  f"{state.budget.api_calls_used}/{state.budget.max_api_calls} api calls")
 
-    # Current summary
+    # Current summary (always kept)
     if state.current_summary:
         parts.append(f"\n## Summary\n{state.current_summary}")
 
-    # User directives (explicit instructions from the chat layer)
+    # User directives (always kept, already capped at 3)
     if state.user_directives:
         lines = ["\n## User Directives (latest last)"]
         for d in state.user_directives[-3:]:
             lines.append(f"- [{d.ts:%Y-%m-%d %H:%M}] {d.text}")
         parts.append("\n".join(lines))
 
-    # Tasks (focus on active ones)
+    # Tasks
     tasks_text = _format_tasks(state.tasks)
     if tasks_text:
         parts.append(f"\n## Tasks\n{tasks_text}")
 
-    # Recent artifacts
+    # Recent artifacts (may be trimmed by budget)
     artifacts_text = _format_artifacts(state, policy)
     if artifacts_text:
         parts.append(f"\n## Recent Artifacts\n{artifacts_text}")
@@ -65,6 +66,8 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
     if obs_text:
         parts.append(f"\n## Recent Observations\n{obs_text}")
 
+    # Budget enforcement: if total exceeds budget, trim lowest-priority sections
+    parts = _enforce_budget(parts, budget_chars)
     return "\n".join(parts)
 
 
@@ -169,12 +172,43 @@ def _latest_result_evidence(state: ResearchState, limit: int) -> str:
         path = (Path(state.run.workspace_dir) / state.run.run_id / artifact.path).resolve()
         root = (Path(state.run.workspace_dir) / state.run.run_id).resolve()
         if root not in path.parents or not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json"}:
-            return ""
+            continue
         try:
             return f"[{artifact.id} @ {artifact.path}]\n" + _clip_middle(path.read_text(encoding="utf-8", errors="replace"), limit)
         except OSError:
-            return ""
+            continue
     return ""
+
+
+def _enforce_budget(parts: list[str], budget_chars: int) -> list[str]:
+    """Trim lower-priority sections if total exceeds the input budget.
+
+    Priority order (last to be trimmed = most important):
+      Goal > Status > Summary > User Directives > Tasks > Artifacts > Decisions > Observations
+    """
+    total = sum(len(p) for p in parts)
+    if total <= budget_chars:
+        return parts
+
+    # Section markers ordered from lowest to highest priority for trimming
+    trim_order = [
+        "## Recent Observations",
+        "## Recent Decisions",
+        "## Recent Artifacts",
+        "## Tasks",
+    ]
+
+    for marker in trim_order:
+        if total <= budget_chars:
+            break
+        for i, p in enumerate(parts):
+            if p.startswith(marker):
+                total -= len(p)
+                parts[i] = p[:budget_chars // 4] + "\n... [section trimmed to fit budget]"
+                total += len(parts[i])
+                break
+
+    return parts
 
 
 def _clip_middle(text: str, limit: int) -> str:
