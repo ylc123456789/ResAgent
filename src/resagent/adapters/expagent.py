@@ -68,9 +68,13 @@ class ExpAgentAdapter:
         artifact_path = layout.relpath(dec_dir / "scientific_decision.json")
         metadata = {"raw_decision": raw}
         # ExpAgent writes its own card in its run dir (E1)
+        # Ensure the card records the key artifact (ExpAgent may leave it empty)
         for cand in (exp_run_dir / "session.yaml", dec_dir / "session.yaml"):
             if cand.exists():
                 metadata["session_manifest"] = str(cand)
+                _patch_session_key_artifacts(cand, "scientific_decision",
+                    "../scientific_decision.json",
+                    raw.get("summary", "")[:120])
                 break
         artifact = Artifact(
             id=f"exp_decision_{dec_num:03d}",
@@ -429,6 +433,9 @@ def _infer_workspace_path(state, plan: dict, action: dict) -> str:
         match = re.search(pattern, goal)
         if match:
             path = match.group(1).rstrip(".")
+            # Skip URLs and bare hostnames (e.g. "//github.com/pytorch")
+            if "://" in path or path.startswith("//"):
+                continue
             # If it looks like a file path, use parent directory
             if "." in os.path.basename(path) and not os.path.isdir(path):
                 parent = os.path.dirname(path)
@@ -473,3 +480,33 @@ def _infer_verify_commands(plan: dict) -> list[str]:
     if kind == "coding_task":
         return ["python -m py_compile *.py"]
     return []
+
+
+def _patch_session_key_artifacts(card_path: Path, artifact_type: str,
+                                 artifact_relpath: str, summary: str) -> None:
+    """Ensure a session.yaml includes a key artifact entry.
+
+    ExpAgent may write the card with key_artifacts empty; ResAgent patches
+    it after the fact so the card is self-contained for discovery.
+    """
+    try:
+        import yaml
+        data = yaml.safe_load(card_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    existing = data.get("key_artifacts") or []
+    paths = {a.get("path", "") for a in existing if isinstance(a, dict)}
+    if artifact_relpath not in paths:
+        existing.append({
+            "type": artifact_type,
+            "path": artifact_relpath,
+            "summary": summary,
+        })
+        data["key_artifacts"] = existing
+        try:
+            card_path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False),
+                                 encoding="utf-8")
+        except OSError:
+            pass
