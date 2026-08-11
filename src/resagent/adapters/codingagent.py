@@ -46,6 +46,10 @@ class CodingAgentAdapter:
 
         if self.mock:
             raw = self._mock_execute(spec)
+            from ..session_cards import write_mock_card
+            write_mock_card(out_dir / "session.yaml", module="codingagent",
+                            session_id=f"code-mock-{task_num}",
+                            summary=raw.get("summary", "")[:100])
         else:
             raw = self._call_execute(spec, out_dir)
 
@@ -55,13 +59,17 @@ class CodingAgentAdapter:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
         artifact_path = layout.relpath(out_dir / "patch_report.md")
+        metadata = {"raw_result": raw}
+        card = out_dir / "session.yaml"
+        if card.exists():
+            metadata["session_manifest"] = str(card)
         artifact = Artifact(
             id=f"code_patch_{task_num}",
             type=ArtifactType.code_patch,
             producer=Producer.CodingAgent,
             path=artifact_path,
             summary=raw.get("summary", task.input.get("task_goal", ""))[:200],
-            metadata={"raw_result": raw},
+            metadata=metadata,
         )
 
         outcome = raw.get("status", "completed")
@@ -84,6 +92,12 @@ class CodingAgentAdapter:
         Returns the raw CodeExplanation dict.
         """
         if self.mock:
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            from ..session_cards import write_mock_card
+            write_mock_card(out / "session.yaml", module="codingagent",
+                            session_id="code-qa-mock", kind="qa_session",
+                            summary=f"Mock QA: {question[:80]}")
             return {
                 "status": "completed",
                 "answer": (
@@ -94,6 +108,7 @@ class CodingAgentAdapter:
                 "relevant_snippets": [],
                 "uncertainty": "mock mode",
                 "commands_run": [],
+                "_session_manifest": str(out / "session.yaml"),
             }
 
         self._ensure_import()
@@ -121,7 +136,37 @@ class CodingAgentAdapter:
         raw = result.model_dump() if hasattr(result, "model_dump") else {}
         with open(out / "code_explanation.json", "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+        card = out / "session.yaml"
+        if card.exists():
+            raw["_session_manifest"] = str(card)
         return raw
+
+    # ── session resume (conversation layer) ────────────────────────────────
+
+    def resume_session(self, output_dir: str, instruction: str) -> dict:
+        """Resume a code task session in-place (same output_dir, same session_id).
+
+        instruction: the user's new directive, quoted verbatim.
+        """
+        if self.mock:
+            return {
+                "status": "completed",
+                "summary": f"Mock resume: {instruction[:100]}",
+                "changed_files": [],
+                "residual_risks": [],
+            }
+
+        self._ensure_import()
+        from coding_agent import resume_code_task
+
+        result = resume_code_task(
+            Path(output_dir),
+            instruction,
+            model=self.model,
+            api_base=self.api_base,
+            api_key_env=self.api_key_env,
+        )
+        return result.model_dump() if hasattr(result, "model_dump") else {"summary": str(result)}
 
     def _call_execute(self, spec: dict, out_dir: Path) -> dict:
         self._ensure_import()

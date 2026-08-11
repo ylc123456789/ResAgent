@@ -51,6 +51,12 @@ class ExpAgentAdapter:
 
         if self.mock:
             raw = self._mock_advise(state)
+            dec_dir.mkdir(parents=True, exist_ok=True)
+            from ..session_cards import write_mock_card
+            write_mock_card(dec_dir / "session.yaml", module="expagent",
+                            session_id=f"exp-mock-{dec_num:03d}",
+                            kind="advisory_session",
+                            summary=raw.get("summary", "")[:100])
         else:
             ctx = self._build_advisor_context(state)
             raw = self._call_advise(ctx, exp_run_dir)
@@ -60,13 +66,19 @@ class ExpAgentAdapter:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
         artifact_path = layout.relpath(dec_dir / "scientific_decision.json")
+        metadata = {"raw_decision": raw}
+        # ExpAgent writes its own card in its run dir (E1)
+        for cand in (exp_run_dir / "session.yaml", dec_dir / "session.yaml"):
+            if cand.exists():
+                metadata["session_manifest"] = str(cand)
+                break
         artifact = Artifact(
             id=f"exp_decision_{dec_num:03d}",
             type=ArtifactType.scientific_decision,
             producer=Producer.ExpAgent,
             path=artifact_path,
             summary=raw.get("summary", "")[:200],
-            metadata={"raw_decision": raw},
+            metadata=metadata,
         )
 
         self._state = state  # so inference helpers can access state
@@ -94,7 +106,15 @@ class ExpAgentAdapter:
         (chat_tools) must NOT create AgentTasks from recommended_actions.
         """
         if self.mock:
-            return self._mock_adhoc(situation)
+            raw = self._mock_adhoc(situation)
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            from ..session_cards import write_mock_card
+            write_mock_card(out / "session.yaml", module="expagent",
+                            session_id="exp-mock-adhoc", kind="advisory_session",
+                            summary=raw.get("summary", "")[:100])
+            raw["_session_manifest"] = str(out / "session.yaml")
+            return raw
 
         self._ensure_import()
         from experiment_designer.models import AdvisorContext, ArtifactRef
@@ -130,6 +150,9 @@ class ExpAgentAdapter:
             raw["_extra"] = extra
         with open(out / "scientific_decision.json", "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
+        card = out / "session.yaml"
+        if card.exists():
+            raw["_session_manifest"] = str(card)
         return raw
 
     def _mock_adhoc(self, situation: str) -> dict:

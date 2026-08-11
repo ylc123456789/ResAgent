@@ -132,7 +132,21 @@ class ResearchBrief(BaseModel):
         return "\n".join(lines)
 
 
-# ── ConversationState ─────────────────────────────────────────────────────────
+# ── Sub-session index (docs/SESSION_AND_PROJECT_MODEL.md §3) ─────────────────
+
+class SessionRef(BaseModel):
+    """Index entry for a sub-agent session (its session.yaml card).
+
+    The big conversation never holds sub-session content — only this index.
+    The card file itself is owned and written by the sub-module.
+    """
+    module: str            # reproagent | codingagent | expagent
+    session_id: str
+    manifest_path: str     # absolute path to session.yaml
+    status: str = ""
+    summary: str = ""
+    run_id: str = ""       # owning research run, if any
+
 
 class ConversationState(BaseModel):
     """Derived view over the event log. Small, serializable, rebuildable."""
@@ -141,12 +155,14 @@ class ConversationState(BaseModel):
     active_run_id: str | None = None
     scratch_summary: str = ""  # compressed older conversation
     recent_artifacts: list[ConvArtifactRef] = Field(default_factory=list)  # cap 20
+    session_index: list[SessionRef] = Field(default_factory=list)  # cap 50
     pending_brief: ResearchBrief | None = None
     event_count: int = 0
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
     MAX_RECENT_ARTIFACTS: ClassVar[int] = 20
+    MAX_SESSION_INDEX: ClassVar[int] = 50
 
     def apply_patch(self, patch: dict[str, Any]) -> None:
         """Apply a state_patch from an event payload."""
@@ -160,6 +176,16 @@ class ConversationState(BaseModel):
             for a in patch["add_artifacts"]:
                 self.recent_artifacts.append(ConvArtifactRef.model_validate(a))
             self.recent_artifacts = self.recent_artifacts[-self.MAX_RECENT_ARTIFACTS:]
+        if "add_sessions" in patch:
+            for s in patch["add_sessions"]:
+                ref = SessionRef.model_validate(s)
+                # upsert by (module, session_id): refresh status/summary/path
+                self.session_index = [
+                    r for r in self.session_index
+                    if not (r.module == ref.module and r.session_id == ref.session_id)
+                ]
+                self.session_index.append(ref)
+            self.session_index = self.session_index[-self.MAX_SESSION_INDEX:]
         if "pending_brief" in patch:
             pb = patch["pending_brief"]
             self.pending_brief = ResearchBrief.model_validate(pb) if pb else None

@@ -183,6 +183,7 @@ def _dispatch(args):
             expagent=ctrl.expagent,
             codingagent=ctrl.codingagent,
             controller_factory=lambda: ctrl,
+            reproagent=ctrl.reproagent,
             mock=mock,
         )
         chat = ChatLoop(cfg, registry, tools, mock=mock)

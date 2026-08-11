@@ -49,12 +49,14 @@ class ChatTools:
         expagent,          # ExpAgentAdapter
         codingagent,       # CodingAgentAdapter
         controller_factory,  # callable() -> Controller
+        reproagent=None,   # ReproAgentAdapter (needed for resume_subsession)
         mock: bool = False,
     ):
         self.config = config
         self.registry = registry
         self.expagent = expagent
         self.codingagent = codingagent
+        self.reproagent = reproagent
         self.controller_factory = controller_factory
         self.mock = mock
 
@@ -68,6 +70,8 @@ class ChatTools:
             "propose_research_run": self._propose_research_run,
             "start_research_run": self._start_research_run,
             "advance_run": self._advance_run,
+            "list_sessions": self._list_sessions,
+            "resume_subsession": self._resume_subsession,
         }
         handler = handlers.get(tool)
         if handler is None:
@@ -148,8 +152,20 @@ class ChatTools:
 
         return ToolOutcome(
             text=text + "\n\n[advisory only — no research task was created]",
-            state_patch={"add_artifacts": [ref]},
+            state_patch=self._consult_patch(ref, raw),
         )
+
+    @staticmethod
+    def _consult_patch(ref: dict, raw: dict) -> dict:
+        """State patch for a consult: record the artifact + session index entry."""
+        patch: dict = {"add_artifacts": [ref]}
+        manifest = raw.get("_session_manifest")
+        if manifest:
+            from .session_cards import read_session_card, card_to_session_ref
+            card = read_session_card(manifest)
+            if card:
+                patch["add_sessions"] = [card_to_session_ref(card, manifest)]
+        return patch
 
     def _resolve_artifacts(self, conv: ConversationState, ids: list[str]) -> list[dict]:
         if not ids:
@@ -236,6 +252,94 @@ class ChatTools:
             state_patch={"active_run_id": run_id},
         )
 
+    # ── sub-session index / resume ──────────────────────────────────────────
+
+    def _list_sessions(self, conv: ConversationState, params: dict) -> ToolOutcome:
+        from .session_cards import scan_session_cards
+
+        run_id = params.get("run_id", "") or conv.active_run_id or ""
+        if run_id:
+            root = Path(conv.workspace_root) / run_id
+        else:
+            root = Path(conv.workspace_root)
+        cards = scan_session_cards(root, limit=50)
+        if not cards:
+            scope = f"run {run_id}" if run_id else "workspace"
+            return ToolOutcome(text=f"No sub-agent sessions found in {scope}.")
+        lines = [f"Sub-agent sessions ({len(cards)}):"]
+        for c in cards:
+            lines.append(
+                f"  - [{c.get('module', '?')}] {c.get('session_id', '?')} "
+                f"[{c.get('status', '?')}] {str(c.get('summary', ''))[:60]}"
+            )
+            lines.append(f"      manifest: {c.get('_manifest_path', '')}")
+        return ToolOutcome(text="\n".join(lines))
+
+    def _resume_subsession(self, conv: ConversationState, params: dict) -> ToolOutcome:
+        from .session_cards import read_session_card
+
+        instruction = (params.get("instruction") or "").strip()
+        if not instruction:
+            return ToolOutcome(ok=False, text="resume_subsession requires non-empty 'instruction'.")
+
+        manifest = (params.get("manifest_path") or "").strip()
+        if not manifest:
+            sid = (params.get("session_id") or "").strip()
+            match = next((s for s in conv.session_index if s.session_id == sid), None)
+            if match is None:
+                return ToolOutcome(
+                    ok=False,
+                    text=f"Session '{sid}' not in the index. Use list_sessions to find it.",
+                )
+            manifest = match.manifest_path
+
+        # Containment: only resume sessions inside this workspace
+        try:
+            Path(manifest).resolve().relative_to(Path(conv.workspace_root).resolve())
+        except ValueError:
+            return ToolOutcome(ok=False, text=f"Session path outside workspace: {manifest}")
+
+        card = read_session_card(manifest)
+        if card is None:
+            return ToolOutcome(ok=False, text=f"Cannot read session card: {manifest}")
+        module = card.get("module", "")
+        project_path = card.get("project_path") or str(Path(manifest).parent)
+
+        if module == "reproagent":
+            if self.reproagent is None:
+                return ToolOutcome(ok=False, text="ReproAgent adapter not wired.")
+            result = self.reproagent.resume_session(
+                project_path, instruction,
+                max_steps=self.config.chat.default_advance_steps,
+            )
+        elif module == "codingagent":
+            result = self.codingagent.resume_session(project_path, instruction)
+        elif module == "expagent":
+            return ToolOutcome(
+                ok=False,
+                text="Advisory sessions (expagent) are not resumable; start a new "
+                     "consult_expert with the previous context quoted.",
+            )
+        else:
+            return ToolOutcome(ok=False, text=f"Cannot resume module '{module}'.")
+
+        status = result.get("status", "")
+        summary = str(result.get("summary", ""))[:500]
+        # Refresh the index entry from the card (sub-module rewrote it)
+        from .session_cards import card_to_session_ref
+        new_card = read_session_card(manifest) or card
+        run_id = ""
+        parent = new_card.get("parent") or {}
+        if isinstance(parent, dict):
+            run_id = parent.get("run_id", "")
+        patch = {"add_sessions": [card_to_session_ref(new_card, manifest, run_id=run_id)]}
+
+        return ToolOutcome(
+            text=f"Session {new_card.get('session_id', '?')} resumed "
+                 f"(module={module}, status={status}).\n{summary}",
+            state_patch=patch,
+        )
+
     # ── Tier 2: research run gate ─────────────────────────────────────────
 
     def _propose_research_run(self, conv: ConversationState, params: dict) -> ToolOutcome:
@@ -294,8 +398,10 @@ class ChatTools:
         save_state(state)
 
         summary = self._summarize_run_progress(state, max_steps)
+        session_patch = self._scan_run_sessions(conv.workspace_root, run_id)
         return ToolOutcome(
             text=f"Research run created and advanced.\n{summary}",
+            state_patch=session_patch,
             extra_events=[
                 (ConversationEventType.brief_confirmed,
                  {"run_id": run_id, "state_patch": {"pending_brief": None}}),
@@ -333,8 +439,11 @@ class ChatTools:
         save_state(state)
 
         summary = self._summarize_run_progress(state, max_steps)
+        session_patch = self._scan_run_sessions(conv.workspace_root, run_id)
+        session_patch["active_run_id"] = run_id
         return ToolOutcome(
             text=f"Run {run_id} advanced with your instruction.\n{summary}",
+            state_patch=session_patch,
             extra_events=[(
                 ConversationEventType.run_advanced,
                 {"run_id": run_id,
@@ -344,6 +453,17 @@ class ChatTools:
         )
 
     # ── helpers ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _scan_run_sessions(workspace_root: str, run_id: str) -> dict:
+        """Scan a run dir for sub-agent session cards -> add_sessions patch."""
+        from .session_cards import scan_session_cards, card_to_session_ref
+        cards = scan_session_cards(Path(workspace_root) / run_id, limit=50)
+        if not cards:
+            return {}
+        return {"add_sessions": [
+            card_to_session_ref(c, c["_manifest_path"], run_id=run_id) for c in cards
+        ]}
 
     def _cap_steps(self, requested) -> int:
         default = self.config.chat.default_advance_steps

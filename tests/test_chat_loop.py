@@ -7,6 +7,7 @@ import pytest
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
+from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.capabilities import CapabilityRegistry
 from resagent.chat import ChatLoop, handle_slash
 from resagent.chat_models import ConversationEventType
@@ -43,6 +44,7 @@ def stack(tmp_path):
         expagent=ExpAgentAdapter(mock=True),
         codingagent=CodingAgentAdapter(mock=True),
         controller_factory=lambda: ctrl,
+        reproagent=ReproAgentAdapter(mock=True),
         mock=True,
     )
     conv = new_conversation(str(tmp_path))
@@ -224,6 +226,10 @@ def test_slash_commands(stack):
 
     # /status uses the active run
     assert conv.active_run_id in handle_slash(conv, "/status", tools)
+
+    # /sessions lists sub-agent sessions of the active run
+    sessions_out = handle_slash(conv, "/sessions", tools)
+    assert "Sub-agent sessions" in sessions_out or "No sub-agent sessions" in sessions_out
 
 
 def test_slash_new_and_quit(stack):

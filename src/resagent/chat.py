@@ -280,7 +280,7 @@ _QUIT = "__QUIT__"
 _NEW = "__NEW__"
 
 KNOWN_SLASH = {
-    "/help", "/runs", "/status", "/use", "/brief",
+    "/help", "/runs", "/status", "/use", "/brief", "/sessions",
     "/confirm", "/cancel", "/new", "/quit", "/exit", "/q",
 }
 
@@ -314,12 +314,15 @@ def handle_slash(conv: ConversationState, cmd: str, tools: ChatTools) -> str | N
             "  /runs              list research runs\n"
             "  /status [run_id]   show run status (default: active run)\n"
             "  /use <run_id>      set the active run\n"
+            "  /sessions [run_id] list sub-agent sessions (repro/code/advisory)\n"
             "  /brief             show the pending research brief\n"
             "  /confirm           confirm the pending brief and start the run\n"
             "  /cancel            discard the pending brief\n"
             "  /new               start a new conversation\n"
             "  /quit              exit"
         )
+    if name == "/sessions":
+        return tools.execute(conv, "list_sessions", {"run_id": arg}).text
     if name == "/runs":
         return tools.execute(conv, "list_runs", {}).text
     if name == "/status":

@@ -56,8 +56,16 @@ class ReproAgentAdapter:
         if self.mock:
             raw = self._mock_execute(spec)
             outcome = "completed"
+            from ..session_cards import write_mock_card
+            write_mock_card(repro_ws / "session.yaml", module="reproagent",
+                            session_id=f"repro-mock-{task_num}",
+                            summary=raw.get("summary", "")[:100])
         else:
-            raw, outcome = self._call_execute(spec, repro_ws)
+            raw, outcome = self._call_execute(
+                spec, repro_ws,
+                parent_run={"module": "resagent", "run_id": layout.run_id,
+                            "task_id": task.id},
+            )
 
         # Write adapter result WITHOUT overwriting ReproAgent's own state.json
         adapter_file = task_dir / layout.resagent_adapter_result()
@@ -71,13 +79,17 @@ class ReproAgentAdapter:
         else:
             artifact_path = layout.relpath(repro_ws / "result.md")  # best-effort
 
+        metadata = {"outcome": outcome, "raw_result": raw}
+        card = repro_ws / "session.yaml"
+        if card.exists():
+            metadata["session_manifest"] = str(card)
         artifact = Artifact(
             id=f"repro_result_{task_num}",
             type=ArtifactType.repro_result,
             producer=Producer.ReproAgent,
             path=artifact_path,
             summary=raw.get("summary", task.input.get("experiment_goal", ""))[:200],
-            metadata={"outcome": outcome, "raw_result": raw},
+            metadata=metadata,
         )
 
         return {
@@ -86,7 +98,8 @@ class ReproAgentAdapter:
             "raw": raw,
         }
 
-    def _call_execute(self, spec: dict, out_dir: Path) -> tuple[dict, str]:
+    def _call_execute(self, spec: dict, out_dir: Path,
+                      parent_run: dict | None = None) -> tuple[dict, str]:
         self._ensure_import()
         from reproagent.models import ReproTask
         from reproagent.controller import run_controller
@@ -108,6 +121,10 @@ class ReproAgentAdapter:
             # system-wide default from config/env. Without this, ReproAgent's
             # cache mechanism is silently disabled under orchestration.
             dataset_cache_dir=spec.get("dataset_cache_dir") or self.dataset_cache_dir,
+            # Per-project conda env (shared across tasks of the same run)
+            # and the parent pointer on the session card.
+            env_namespace=parent_run.get("run_id", "") if parent_run else "",
+            parent_run=parent_run,
         )
 
         start = time.time()
@@ -139,6 +156,65 @@ class ReproAgentAdapter:
                 "duration_seconds": round(time.time() - start, 1),
                 "error": str(e),
             }, "failed"
+
+    # ── session resume (conversation layer) ────────────────────────────────
+
+    def resume_session(self, workspace_dir: str, instruction: str,
+                       max_steps: int | None = None) -> dict:
+        """Resume a reproduction session in-place.
+
+        Same workspace, same task_id (conda env reused), previous result
+        summary + the new instruction injected as the goal.
+        """
+        if self.mock:
+            return {
+                "status": "completed",
+                "summary": f"Mock resume: {instruction[:100]}",
+                "steps": 2,
+            }
+
+        self._ensure_import()
+        from reproagent.controller import run_controller
+        from reproagent.models import AgentState, ReproTask
+
+        ws = Path(workspace_dir)
+        state_path = ws / "state.json"
+        if not state_path.exists():
+            raise RuntimeError(f"No state.json in {ws} — cannot resume.")
+
+        state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        orig_task = state_data.get("task", {})
+        prev_summary = state_data.get("final_summary", "")
+
+        goal = (
+            "## Continuation of previous task\n\n"
+            f"New instruction: {instruction}\n\n"
+            f"Original goal: {orig_task.get('experiment_goal', '')}\n\n"
+            f"Previous results (summary): {prev_summary[:2000]}"
+        )
+        payload = {
+            **orig_task,
+            "workspace_dir": str(ws),
+            "experiment_goal": goal,
+            "mock_llm": False,
+            "model": self.model,
+            "api_base": self.api_base,
+            "api_key_env": self.api_key_env,
+        }
+        if max_steps:
+            payload["max_steps"] = max_steps
+        if not payload.get("dataset_cache_dir") and self.dataset_cache_dir:
+            payload["dataset_cache_dir"] = self.dataset_cache_dir
+
+        task = ReproTask.model_validate(payload)  # same task_id → env reused
+        old_state = AgentState.model_validate(state_data)
+        result_state = run_controller(task, resume_state=old_state)
+        return {
+            "status": result_state.status,
+            "summary": result_state.final_summary,
+            "steps": len(result_state.steps),
+            "session_manifest": str(ws / "session.yaml"),
+        }
 
     def _mock_execute(self, spec: dict) -> dict:
         return {

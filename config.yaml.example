@@ -25,4 +25,6 @@ policy:
   # Pre-downloaded dataset cache for reproduction tasks (TORCH_HOME/HF_HOME etc.
   # are pointed here inside repro runs). Resolution: this value < $REPROAGENT_DATASET_CACHE.
   # Example (AutoDL server): /root/autodl-tmp/datasets
+  # Side effect: the shared pip cache auto-derives to <parent>/pip-cache
+  # (e.g. /root/autodl-tmp/pip-cache) unless $REPROAGENT_PIP_CACHE overrides.
   repro_dataset_cache: ""

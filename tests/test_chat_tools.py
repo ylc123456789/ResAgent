@@ -7,6 +7,7 @@ import pytest
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
+from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.capabilities import CapabilityRegistry
 from resagent.chat_models import ConversationEventType
 from resagent.chat_tools import ChatTools
@@ -28,6 +29,7 @@ def stack(tmp_path):
         expagent=ExpAgentAdapter(mock=True),
         codingagent=CodingAgentAdapter(mock=True),
         controller_factory=lambda: ctrl,
+        reproagent=ReproAgentAdapter(mock=True),
         mock=True,
     )
     conv = new_conversation(str(tmp_path))
@@ -177,3 +179,98 @@ def test_consult_artifacts_written_under_conversation(stack):
     })
     conv_dir = Path(conv.workspace_root) / "conversations" / conv.conversation_id
     assert (conv_dir / "experts").exists()
+
+
+# ── sub-session index & resume ────────────────────────────────────────────────
+
+def test_consult_indexes_session(stack):
+    """Mock consult writes a session card; the patch must index it."""
+    _, _, tools, conv = stack
+    out = tools.execute(conv, "consult_expert", {
+        "expert": "expagent", "instruction": "diffusion 用于时序检测有戏吗？",
+    })
+    assert out.ok
+    sessions = out.state_patch.get("add_sessions")
+    assert sessions and sessions[0]["module"] == "expagent"
+    assert sessions[0]["manifest_path"].endswith("session.yaml")
+
+
+def test_start_run_indexes_subsessions(stack):
+    cfg, _, tools, conv = stack
+    out = tools.execute(conv, "propose_research_run", {"brief": {"goal": "验证 X"}})
+    conv.apply_patch(out.extra_events[0][1]["state_patch"])
+    out = tools.execute(conv, "start_research_run", {})
+    assert out.ok, out.text
+    sessions = out.state_patch.get("add_sessions", [])
+    assert sessions, "run sessions should be scanned into the index"
+    assert all(s["run_id"] for s in sessions)
+    manifests = [s["manifest_path"] for s in sessions]
+    assert any("session.yaml" in m for m in manifests)
+
+
+def test_list_sessions(stack):
+    cfg, _, tools, conv = stack
+    state = init_run(goal="g", workspace_root=conv.workspace_root, config=cfg)
+    from resagent.session_cards import write_mock_card
+    ws = Path(conv.workspace_root) / state.run.run_id / "tasks" / "reproagent" / "task_001"
+    write_mock_card(ws / "session.yaml", module="reproagent",
+                    session_id="repro-1", summary="MNIST 99%")
+    out = tools.execute(conv, "list_sessions", {"run_id": state.run.run_id})
+    assert "repro-1" in out.text
+    assert "reproagent" in out.text
+
+
+def _seed_session(conv, module="reproagent", session_id="repro-1"):
+    """Create a fake session card inside the workspace and index it."""
+    ws = Path(conv.workspace_root) / "res-x" / "task_ws"
+    ws.mkdir(parents=True)
+    (ws / "state.json").write_text("{}", encoding="utf-8")
+    from resagent.session_cards import write_mock_card
+    write_mock_card(ws / "session.yaml", module=module, session_id=session_id)
+    conv.apply_patch({"add_sessions": [{
+        "module": module, "session_id": session_id,
+        "manifest_path": str(ws / "session.yaml"), "status": "completed",
+    }]})
+    return ws
+
+
+def test_resume_subsession_dispatches_by_module(stack):
+    _, _, tools, conv = stack
+    _seed_session(conv, module="reproagent", session_id="repro-1")
+    out = tools.execute(conv, "resume_subsession", {
+        "session_id": "repro-1", "instruction": "再跑 5 个 epoch",
+    })
+    assert out.ok, out.text
+    assert "repro-1" in out.text
+    # index refreshed from the card
+    assert conv.session_index[0].session_id == "repro-1"
+
+
+def test_resume_subsession_unknown_session(stack):
+    _, _, tools, conv = stack
+    out = tools.execute(conv, "resume_subsession", {
+        "session_id": "nope", "instruction": "继续",
+    })
+    assert not out.ok and "not in the index" in out.text
+
+
+def test_resume_subsession_expagent_rejected(stack):
+    _, _, tools, conv = stack
+    _seed_session(conv, module="expagent", session_id="exp-1")
+    out = tools.execute(conv, "resume_subsession", {
+        "session_id": "exp-1", "instruction": "继续",
+    })
+    assert not out.ok and "not resumable" in out.text
+
+
+def test_resume_subsession_containment(stack):
+    """Sessions outside the workspace must not be resumable."""
+    _, _, tools, conv = stack
+    outside = Path(conv.workspace_root).parent / "outside_ws"
+    outside.mkdir(exist_ok=True)
+    from resagent.session_cards import write_mock_card
+    write_mock_card(outside / "session.yaml", module="reproagent", session_id="evil")
+    out = tools.execute(conv, "resume_subsession", {
+        "manifest_path": str(outside / "session.yaml"), "instruction": "继续",
+    })
+    assert not out.ok and "outside workspace" in out.text
