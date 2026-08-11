@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 # ── Enums ────────────────────────────────────────────────────────────────────
 
 class RunStatus(str, Enum):
+    """Lifecycle status of a research run."""
     running = "running"
     paused = "paused"
     completed = "completed"
@@ -20,6 +21,7 @@ class RunStatus(str, Enum):
 
 
 class TaskStatus(str, Enum):
+    """Lifecycle status of a single task."""
     pending = "pending"
     running = "running"
     completed = "completed"
@@ -30,12 +32,14 @@ class TaskStatus(str, Enum):
 
 
 class TaskPriority(str, Enum):
+    """Priority level of a task."""
     high = "high"
     medium = "medium"
     low = "low"
 
 
 class ArtifactType(str, Enum):
+    """Type/category of an artifact."""
     scientific_decision = "scientific_decision"
     experiment_plan = "experiment_plan"
     code_patch = "code_patch"
@@ -46,6 +50,7 @@ class ArtifactType(str, Enum):
 
 
 class Producer(str, Enum):
+    """Module that produced a task or artifact."""
     ExpAgent = "ExpAgent"
     CodingAgent = "CodingAgent"
     ReproAgent = "ReproAgent"
@@ -53,6 +58,7 @@ class Producer(str, Enum):
 
 
 class AgentKind(str, Enum):
+    """Kind of work a task represents."""
     advise = "advise"
     coding_task = "coding_task"
     repro_task = "repro_task"
@@ -63,6 +69,7 @@ class AgentKind(str, Enum):
 # ── Action space for the agentic loop ─────────────────────────────────────────
 
 class ActionName(str, Enum):
+    """Action the controller planner may select."""
     call_exp_agent = "call_exp_agent"
     call_coding_agent = "call_coding_agent"
     call_repro_agent = "call_repro_agent"
@@ -185,12 +192,14 @@ class ResearchState(BaseModel):
     # ── helpers ───────────────────────────────────────────────────────────
 
     def find_task(self, task_id: str) -> AgentTask | None:
+        """Return the task with the given id, or None."""
         for t in self.tasks:
             if t.id == task_id:
                 return t
         return None
 
     def find_artifact(self, artifact_id: str) -> Artifact | None:
+        """Return the artifact with the given id, or None."""
         for a in self.artifacts:
             if a.id == artifact_id:
                 return a
@@ -206,7 +215,9 @@ class ResearchState(BaseModel):
         return max(numbers, default=0) + 1
 
     def next_decision_number(self) -> int:
+        """Return the next decision number (1-based)."""
         return len(self.decisions) + 1
 
     def next_artifact_number(self) -> int:
+        """Return the next artifact number (1-based)."""
         return len(self.artifacts) + 1

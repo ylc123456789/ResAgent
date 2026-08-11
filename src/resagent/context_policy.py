@@ -15,6 +15,8 @@ MODEL_CONTEXT_WINDOWS = {
 
 @dataclass(frozen=True)
 class ContextPolicy:
+    """Immutable, model-aware limits for packing controller context."""
+
     context_window_tokens: int
     input_budget_tokens: int
     artifact_count: int
@@ -25,6 +27,7 @@ class ContextPolicy:
 
     @classmethod
     def for_model(cls, model: str | None) -> "ContextPolicy":
+        """Return the context policy appropriate for the given model."""
         name = (model or "").lower().split("/")[-1]
         window = MODEL_CONTEXT_WINDOWS.get(name, 128_000)
         budget = max(8_000, window - max(8_000, window // 10))

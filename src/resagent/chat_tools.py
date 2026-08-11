@@ -40,7 +40,7 @@ class ToolOutcome:
 
 
 class ChatTools:
-    """Executes the 5 chat tools. Owns adapters and a controller factory."""
+    """Executes the 8 chat tools. Owns adapters and a controller factory."""
 
     def __init__(
         self,

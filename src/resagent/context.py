@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .context_policy import ContextPolicy
-from .models import ResearchState, AgentTask, Artifact, Observation, DecisionRecord
+from .models import ResearchState, AgentTask, Observation, DecisionRecord
 
 
 # ── Controller context (for LLM planner) ──────────────────────────────────────
@@ -183,8 +183,9 @@ def _latest_result_evidence(state: ResearchState, limit: int) -> str:
 def _enforce_budget(parts: list[str], budget_chars: int) -> list[str]:
     """Trim lower-priority sections if total exceeds the input budget.
 
-    Priority order (last to be trimmed = most important):
-      Goal > Status > Summary > User Directives > Tasks > Artifacts > Decisions > Observations
+    Only Observations, Decisions, Artifacts, and Tasks are trimmable (trimmed in
+    that order, lowest priority first). Goal, Status, Summary, and User Directives
+    are always kept.
     """
     total = sum(len(p) for p in parts)
     if total <= budget_chars:

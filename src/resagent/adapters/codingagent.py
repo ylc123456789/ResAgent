@@ -33,6 +33,7 @@ class CodingAgentAdapter:
         self._imported = False
 
     def execute(self, task: AgentTask, layout: WorkspaceLayout, attempt_number: int = 1) -> dict:
+        """Execute a coding task via CodingAgent. Returns dict with artifact, raw, outcome."""
         spec = build_codingagent_context(task)
         task_num = task.id.replace("task_", "")
         task_n = int(task_num) if task_num.isdigit() else 1

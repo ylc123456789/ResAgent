@@ -39,6 +39,7 @@ class ReproAgentAdapter:
         self._imported = False
 
     def execute(self, task: AgentTask, layout: WorkspaceLayout, attempt_number: int = 1) -> dict:
+        """Execute a reproduction task via ReproAgent. Returns dict with artifact, outcome, raw."""
         spec = build_reproagent_context(task)
         task_num = task.id.replace("task_", "")
         task_n = int(task_num) if task_num.isdigit() else 1

@@ -212,9 +212,9 @@ def _extract_json(raw: str) -> dict:
 
 def _repair_truncated_json(text: str) -> str:
     """Attempt to repair a truncated JSON object by closing open structures."""
-    # Remove trailing incomplete fragments (unclosed strings, partial keys)
-    # Strategy: find the last valid complete key-value pair and truncate there,
-    # then close all open braces/brackets.
+    # Close any unterminated string, then close open braces/brackets so the
+    # structure balances. Does NOT truncate to a last valid key-value pair;
+    # a trailing comma is stripped afterward so the result is valid JSON.
 
     # First, try to close any unclosed string
     in_string = False

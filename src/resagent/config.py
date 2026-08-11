@@ -1,4 +1,4 @@
-"""Config loading from yaml + env overrides. xxx"""
+"""Config loading from yaml + env overrides."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 
 @dataclass
 class AgentPaths:
+    """Paths to the expagent/codingagent/reproagent module checkouts."""
     expagent: str = ""
     codingagent: str = ""
     reproagent: str = ""
@@ -17,6 +18,7 @@ class AgentPaths:
 
 @dataclass
 class LLMConfig:
+    """LLM endpoint + model shared by all sub-agents."""
     api_base: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
     model: str = "deepseek-v4-pro"
@@ -24,11 +26,13 @@ class LLMConfig:
 
 @dataclass
 class WorkspaceConfig:
+    """Workspace-level paths (default runs directory)."""
     default_runs_dir: str = "runs"
 
 
 @dataclass
 class PolicyConfig:
+    """Policy knobs: retries, confirmation gates, repro mirror/cache."""
     max_task_retries: int = 2
     confirm_before_external_runs: bool = True
     confirm_before_long_tasks: bool = True
@@ -48,14 +52,14 @@ class ChatConfig:
 
 @dataclass
 class Config:
+    """Top-level config aggregating all sections, plus CLI path overrides."""
     agents: AgentPaths = field(default_factory=AgentPaths)
     llm: LLMConfig = field(default_factory=LLMConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
 
-    # External module command overrides (for subprocess fallback).
-    # Filled from module_paths resolution.
+    # Optional CLI-override inputs to module_paths resolution (NOT populated by resolution).
     cmd_expagent: str = ""
     cmd_codingagent: str = ""
     cmd_reproagent: str = ""
@@ -89,6 +93,7 @@ def load_config(path: str = "") -> Config:
 
 
 def _find_config_yaml(explicit_path: str) -> str | None:
+    """Resolve the config yaml path (explicit arg, else ./config.yaml, else None)."""
     if explicit_path and Path(explicit_path).exists():
         return explicit_path
     cwd_cfg = Path("config.yaml")
@@ -98,6 +103,7 @@ def _find_config_yaml(explicit_path: str) -> str | None:
 
 
 def _apply_yaml(cfg: Config, path: str) -> None:
+    """Merge yaml values into the Config object."""
     try:
         import yaml
     except ImportError:

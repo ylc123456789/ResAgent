@@ -70,7 +70,7 @@ def _deserialize(payload: dict) -> ResearchState:
 
 
 def submit_user_response(state: ResearchState, question_id: str, response: str) -> None:
-    """Persist a response to the currently pending question and resume the run."""
+    """Record a response in-memory to the currently pending question and resume the run."""
     question = state.pending_question
     if question is None or question.question_id != question_id:
         raise ValueError(f"No pending question with id: {question_id}")

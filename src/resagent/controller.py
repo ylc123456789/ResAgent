@@ -1,7 +1,7 @@
 """Agentic loop controller — the main run loop of ResAgent.
 
 Observes state, picks actions via Planner, executes via adapters,
-records observations, and repeats until finish or blocked.
+records observations, and repeats until finish, max_steps, or user_response_required (paused).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class Controller:
         expagent: ExpAgentAdapter,
         codingagent: CodingAgentAdapter,
         reproagent: ReproAgentAdapter,
-        confirm_callback: callable = None,  # called as confirm(msg) -> bool
+        confirm_callback: callable = None,
     ):
         self.planner = planner
         self.expagent = expagent
@@ -70,7 +70,7 @@ class Controller:
         return observation
 
     def run(self, state: ResearchState, max_steps: int = 50) -> ResearchState:
-        """Run the full agentic loop until finish or max steps."""
+        """Run the full agentic loop until finish, max_steps, or pause (user_response_required)."""
         for _ in range(max_steps):
             obs = self.step(state)
             save_state(state)
