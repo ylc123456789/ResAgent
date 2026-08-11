@@ -189,11 +189,16 @@ class ExpAgentAdapter:
                 summary=a.summary,
             ))
 
-        return AdvisorContext(
-            situation=situation,
-            artifacts=artifacts,
-            existing_plan=None,
-        )
+        # Link the advisory session card back to this run (ExpAgent E1 parent).
+        parent_run = {
+            "module": "resagent",
+            "run_id": state.run.run_id,
+            "task_id": f"exp_decision_{state.next_artifact_number():03d}",
+        }
+        ctx_kwargs = dict(situation=situation, artifacts=artifacts, existing_plan=None)
+        if "parent_run" in AdvisorContext.model_fields:
+            ctx_kwargs["parent_run"] = parent_run
+        return AdvisorContext(**ctx_kwargs)
 
     def _build_situation(self, state) -> str:
         """Build a rich situation string for ExpAgent.
