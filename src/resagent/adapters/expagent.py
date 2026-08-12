@@ -469,8 +469,6 @@ def _dependency_graph_issues(actions: list[dict]) -> list[str]:
     for index, action in enumerate(actions):
         action_id = str(action.get("action_id", "")).strip()
         dependencies = [str(value).strip() for value in action.get("depends_on", [])]
-        if dependencies and not action_id:
-            issues.append(f"recommended action {index} has dependencies but no action_id")
         for dependency in dependencies:
             if dependency not in known:
                 issues.append(

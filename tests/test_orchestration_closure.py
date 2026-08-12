@@ -215,6 +215,35 @@ def test_same_decision_dependency_chain_routes_and_orders_tasks(tmp_path):
     assert {"action": "call_repro_agent", "task_id": tasks[1].id} in allowed_action_candidates(state)
 
 
+def test_dependent_action_does_not_need_its_own_action_id(tmp_path):
+    """An action needs an ID only when another action references it."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    state = init_state("optional-dependent-id", str(tmp_path), "goal")
+    adapter = ExpAgentAdapter(mock=True)
+    adapter._state = state
+    tasks = adapter._actions_to_tasks([
+        {
+            "type": "coding_task", "action_id": "patch",
+            "rationale": "patch", "plan": {
+                "kind": "coding_task", "workspace_path": str(repo),
+                "task_goal": "change code",
+            },
+        },
+        {
+            "type": "run_task", "depends_on": ["patch"],
+            "rationale": "verify", "plan": {
+                "kind": "run_task", "command_goal": "run once",
+            },
+        },
+    ], "decision", 1)
+
+    assert adapter._normalization_issues == []
+    assert len(tasks) == 2
+    assert tasks[1].action_id == ""
+    assert tasks[1].depends_on == [tasks[0].id]
+
+
 def test_dependency_cycle_is_rejected_atomically(tmp_path):
     state = init_state("dependency-cycle", str(tmp_path), "goal")
     adapter = ExpAgentAdapter(mock=True)
