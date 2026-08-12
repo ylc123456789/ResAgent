@@ -2,9 +2,11 @@
 
 See docs/CONVERSATION_LAYER_DESIGN.md §4.5.
 
-Tier model:
-    Tier 1 (no confirmation): consult_expert, list_runs, inspect_run
-    Tier 2 (user-confirmed):  propose/start_research_run, advance_run
+Tools (8):
+    Tier 1 (no confirmation): consult_expert, list_runs, inspect_run,
+                              list_sessions
+    Tier 2 (user-confirmed):  propose_research_run, start_research_run,
+                              advance_run, resume_subsession
 
 Consults are advisory only: they NEVER create AgentTasks or mutate any
 ResearchState. Their outputs land in ConversationState.recent_artifacts.

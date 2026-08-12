@@ -154,7 +154,7 @@ class Observation(BaseModel):
     """One observation recorded during the agentic loop."""
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     action: ActionName | None = None
-    result: str = ""  # "ok" | "error" | "user_response_required"
+    result: str = ""  # "ok" | "error" | "user_response_required" | "terminal" | "rejected"
     detail: str = ""
     artifact_ids: list[str] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
