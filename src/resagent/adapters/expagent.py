@@ -339,6 +339,15 @@ class ExpAgentAdapter:
             plan = dict(action.get("plan") or {})
             if not plan.get("workspace_path") and not plan.get("repo_path"):
                 for dependency_name in dependency_names:
+                    dependency_task = action_tasks.get(dependency_name)
+                    if dependency_task is not None:
+                        inherited = (
+                            dependency_task.input.get("workspace_path")
+                            or dependency_task.input.get("source_workspace")
+                        )
+                        if inherited:
+                            plan["workspace_path"] = inherited
+                            break
                     dependency_plan = dict(
                         (actions_by_id.get(dependency_name) or {}).get("plan") or {}
                     )

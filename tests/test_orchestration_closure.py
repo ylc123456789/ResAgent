@@ -244,6 +244,40 @@ def test_dependent_action_does_not_need_its_own_action_id(tmp_path):
     assert tasks[1].depends_on == [tasks[0].id]
 
 
+def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
+    """Use the normalized prerequisite task, not only ExpAgent's raw plan."""
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    script = repo / "train.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    state = init_state(
+        "inferred-workspace", str(tmp_path),
+        f"Modify {script} and then run it",
+    )
+    adapter = ExpAgentAdapter(mock=True)
+    adapter._state = state
+    tasks = adapter._actions_to_tasks([
+        {
+            "type": "coding_task", "action_id": "patch",
+            "project_ref": "fixture", "rationale": "patch",
+            "plan": {"kind": "coding_task", "workspace_path": "",
+                     "task_goal": "change code"},
+        },
+        {
+            "type": "run_task", "depends_on": ["patch"],
+            "project_ref": "fixture", "rationale": "verify",
+            "plan": {"kind": "run_task", "workspace_path": "",
+                     "command_goal": "run once"},
+        },
+    ], "decision", 1)
+
+    assert adapter._normalization_issues == []
+    assert len(tasks) == 2
+    assert tasks[0].input["workspace_path"] == str(repo)
+    assert tasks[1].input["workspace_path"] == str(repo)
+    assert tasks[1].input["source_workspace"] == str(repo)
+
+
 def test_dependency_cycle_is_rejected_atomically(tmp_path):
     state = init_state("dependency-cycle", str(tmp_path), "goal")
     adapter = ExpAgentAdapter(mock=True)
