@@ -163,9 +163,9 @@ def _dispatch(args):
 
     elif args.command == "chat":
         from .capabilities import CapabilityRegistry
-        from .chat import ChatLoop, run_repl
-        from .chat_tools import ChatTools
-        from .conversation import load_conversation, new_conversation
+        from .conversation.loop import ChatLoop, run_repl
+        from .conversation.tools import ChatTools
+        from .conversation.history import load_conversation, new_conversation
 
         mock = getattr(args, "mock", False)
         ws = str(Path(args.workspace or cfg.workspace.default_runs_dir).resolve())

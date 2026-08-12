@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .chat_models import ExpertCard
+from .conversation.models import ExpertCard
 from .config import Config
 
 # ── Built-in default cards ────────────────────────────────────────────────────
