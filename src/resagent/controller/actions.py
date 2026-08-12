@@ -270,7 +270,7 @@ class ControllerActions:
         task_id = planned.params.get("task_id", "")
         error = planned.params.get("error_message", "")
 
-        # Deterministic classifier first 鈥?avoids LLM call for known network errors
+        # Deterministic classifier first - avoids LLM calls for known network errors.
         classification = classify_transient(error)
         if classification.get("category") == "unknown":
             classification = self.planner.classify_failure(task_id, error)
@@ -298,7 +298,7 @@ class ControllerActions:
             task.status = TaskStatus.needs_user_input
             question_text = task.input.get("question") or question_text
 
-        # Check if same question is already pending 鈥?no duplicate
+        # Check if the same question is already pending - no duplicates.
         if state.pending_question is not None:
             return Observation(
                 action=ActionName.ask_user,

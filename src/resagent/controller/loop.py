@@ -1,4 +1,4 @@
-"""Agentic loop controller 鈥?the main run loop of ResAgent.
+"""Agentic loop controller - the main run loop of ResAgent.
 
 Observes state, picks actions via Planner, executes via adapters,
 records observations, and repeats until finish, max_steps, or user_response_required (paused).
