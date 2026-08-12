@@ -1,103 +1,21 @@
-"""Agentic loop controller — the main run loop of ResAgent.
-
-Observes state, picks actions via Planner, executes via adapters,
-records observations, and repeats until finish, max_steps, or user_response_required (paused).
-"""
+"""Controller action dispatch, task execution, and retry handling."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from .models import (
-    ResearchState, AgentTask, Attempt, PendingQuestion, DecisionRecord,
-    Observation, ActionName, Producer, TaskStatus, AgentKind, RunStatus,
+from ..models import (
+    ResearchState, Attempt, PendingQuestion, Observation, ActionName,
+    Producer, TaskStatus,
 )
-from .planner import Planner, PlannedAction
-from .adapters.expagent import ExpAgentAdapter
-from .adapters.codingagent import CodingAgentAdapter
-from .adapters.reproagent import ReproAgentAdapter
-from .policies.retry import RetryPolicy, classify_transient
-from .persistence.state import save_state
-from .task_contracts import (
-    TERMINAL_RUN_STATUSES, dependencies_satisfied, validate_finish,
-)
-from .persistence.workspace import WorkspaceLayout
+from .planner import PlannedAction
+from ..policies.retry import RetryPolicy, classify_transient
+from .contracts import dependencies_satisfied, validate_finish
+from ..persistence.workspace import WorkspaceLayout
 
 
-class Controller:
-    """The main agentic loop. Owns adapters and planner, drives the loop."""
-
-    def __init__(
-        self,
-        planner: Planner,
-        expagent: ExpAgentAdapter,
-        codingagent: CodingAgentAdapter,
-        reproagent: ReproAgentAdapter,
-        confirm_callback: callable = None,
-    ):
-        self.planner = planner
-        self.expagent = expagent
-        self.codingagent = codingagent
-        self.reproagent = reproagent
-        self.confirm = confirm_callback or (lambda _: True)
-
-    def step(self, state: ResearchState) -> Observation:
-        """Execute one action, respecting persisted pause and retry state."""
-        if state.run.status in TERMINAL_RUN_STATUSES:
-            observation = Observation(
-                action=ActionName.finish,
-                result="terminal",
-                detail=f"Run is already {state.run.status.value}.",
-            )
-            state.observations.append(observation)
-            return observation
-
-        if state.pending_question is not None or state.run.status == RunStatus.paused:
-            observation = Observation(
-                action=ActionName.ask_user,
-                result="user_response_required",
-                detail="Run is paused until the pending question is answered.",
-            )
-            state.observations.append(observation)
-            state.run.status = RunStatus.paused
-            return observation
-
-        planned = self._next_retry_action(state) or self.planner.choose_action(state)
-        dec_id = f"decision_{state.next_decision_number():03d}"
-        state.decisions.append(DecisionRecord(
-            id=dec_id,
-            made_by="ResAgent",
-            reason=planned.reason,
-            selected_action=planned.action.value,
-        ))
-        observation = self._execute(state, planned)
-        state.observations.append(observation)
-        state.budget.api_calls_used += 1
-
-        if observation.action == ActionName.finish and observation.result == "ok":
-            state.run.status = RunStatus.completed
-            state.current_summary = observation.detail
-        elif observation.result == "user_response_required":
-            state.run.status = RunStatus.paused
-        return observation
-
-    def run(self, state: ResearchState, max_steps: int = 50) -> ResearchState:
-        """Run the full agentic loop until finish, max_steps, or pause (user_response_required)."""
-        for _ in range(max_steps):
-            obs = self.step(state)
-            save_state(state)
-
-            if obs.action == ActionName.finish and obs.result in {"ok", "terminal"}:
-                save_state(state)
-                break
-
-            if obs.result == "user_response_required":
-                save_state(state)
-                break
-
-        return state
-
-    # -- action execution ---------------------------------------------------
+class ControllerActions:
+    """Action handlers shared by the public Controller loop."""
 
     def _execute(self, state: ResearchState, planned: PlannedAction) -> Observation:
         layout = WorkspaceLayout(state.run.workspace_dir, state.run.run_id)
@@ -352,7 +270,7 @@ class Controller:
         task_id = planned.params.get("task_id", "")
         error = planned.params.get("error_message", "")
 
-        # Deterministic classifier first — avoids LLM call for known network errors
+        # Deterministic classifier first 鈥?avoids LLM call for known network errors
         classification = classify_transient(error)
         if classification.get("category") == "unknown":
             classification = self.planner.classify_failure(task_id, error)
@@ -380,7 +298,7 @@ class Controller:
             task.status = TaskStatus.needs_user_input
             question_text = task.input.get("question") or question_text
 
-        # Check if same question is already pending — no duplicate
+        # Check if same question is already pending 鈥?no duplicate
         if state.pending_question is not None:
             return Observation(
                 action=ActionName.ask_user,
