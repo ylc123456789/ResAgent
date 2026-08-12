@@ -29,7 +29,7 @@ from .config import Config
 from .conversation import conversation_dir
 from .models import UserDirective
 from .orchestrator import init_run, resume_run, status as run_status
-from .state import save_state, submit_user_response
+from .persistence.state import save_state, submit_user_response
 
 
 @dataclass
@@ -163,7 +163,7 @@ class ChatTools:
         patch: dict = {"add_artifacts": [ref]}
         manifest = raw.get("_session_manifest")
         if manifest:
-            from .session_cards import read_session_card, card_to_session_ref
+            from .persistence.sessions import read_session_card, card_to_session_ref
             card = read_session_card(manifest)
             if card:
                 patch["add_sessions"] = [card_to_session_ref(card, manifest)]
@@ -257,7 +257,7 @@ class ChatTools:
     # ── sub-session index / resume ──────────────────────────────────────────
 
     def _list_sessions(self, conv: ConversationState, params: dict) -> ToolOutcome:
-        from .session_cards import scan_session_cards
+        from .persistence.sessions import scan_session_cards
 
         run_id = params.get("run_id", "") or conv.active_run_id or ""
         if run_id:
@@ -278,7 +278,7 @@ class ChatTools:
         return ToolOutcome(text="\n".join(lines))
 
     def _resume_subsession(self, conv: ConversationState, params: dict) -> ToolOutcome:
-        from .session_cards import read_session_card
+        from .persistence.sessions import read_session_card
 
         instruction = (params.get("instruction") or "").strip()
         if not instruction:
@@ -328,7 +328,7 @@ class ChatTools:
         status = result.get("status", "")
         summary = str(result.get("summary", ""))[:500]
         # Refresh the index entry from the card (sub-module rewrote it)
-        from .session_cards import card_to_session_ref
+        from .persistence.sessions import card_to_session_ref
         new_card = read_session_card(manifest) or card
         run_id = ""
         parent = new_card.get("parent") or {}
@@ -459,7 +459,7 @@ class ChatTools:
     @staticmethod
     def _scan_run_sessions(workspace_root: str, run_id: str) -> dict:
         """Scan a run dir for sub-agent session cards -> add_sessions patch."""
-        from .session_cards import scan_session_cards, card_to_session_ref
+        from .persistence.sessions import scan_session_cards, card_to_session_ref
         cards = scan_session_cards(Path(workspace_root) / run_id, limit=50)
         if not cards:
             return {}

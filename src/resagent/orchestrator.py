@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import ResearchState
-from .state import init_state, save_state, load_state
+from .persistence.state import init_state, save_state, load_state
 from .config import Config, load_config
 from .integrations.module_paths import resolve_all
 from .planner import Planner
@@ -15,7 +15,7 @@ from .controller import Controller
 from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
-from .report import generate_all
+from .persistence.report import generate_all
 
 
 def _generate_run_id() -> str:

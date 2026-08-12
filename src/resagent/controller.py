@@ -17,11 +17,11 @@ from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
 from .policies.retry import RetryPolicy, classify_transient
-from .state import save_state
+from .persistence.state import save_state
 from .task_contracts import (
     TERMINAL_RUN_STATUSES, dependencies_satisfied, validate_finish,
 )
-from .workspace_layout import WorkspaceLayout
+from .persistence.workspace import WorkspaceLayout
 
 
 class Controller:

@@ -13,7 +13,7 @@ from typing import Any
 
 from .models import ResearchState, ActionName
 from .prompts import CONTROLLER_SYSTEM
-from .context import build_controller_context
+from .context.builder import build_controller_context
 
 
 @dataclass
