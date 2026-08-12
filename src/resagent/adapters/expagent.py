@@ -316,35 +316,67 @@ class ExpAgentAdapter:
     def _actions_to_tasks(
         self, actions: list[dict], source: str, next_num: int
     ) -> list[AgentTask]:
-        """Convert ExpAgent recommended_actions into ResAgent AgentTasks.
+        """Convert one validated ExpAgent action graph into ResAgent tasks."""
+        self._normalization_issues = _dependency_graph_issues(actions)
+        if self._normalization_issues:
+            return []
 
-        ExpAgent fills scientific fields (kind, task_goal, rationale, etc.).
-        ResAgent normalizes executor/capability and fills operational fields.
-        """
-        self._normalization_issues: list[str] = []
-        tasks = []
+        tasks: list[AgentTask] = []
+        action_tasks: dict[str, AgentTask] = {}
+        pending_dependencies: list[tuple[AgentTask, list[str]]] = []
+        actions_by_id = {
+            str(action.get("action_id", "")).strip(): action
+            for action in actions
+            if str(action.get("action_id", "")).strip()
+        }
 
-        for action in actions:
-            action_type = action.get("type", "ask_user")
+        for index, action in enumerate(actions):
+            action_id = str(action.get("action_id", "")).strip()
+            dependency_names = [
+                str(value).strip() for value in action.get("depends_on", [])
+            ]
+            normalized_action = dict(action)
+            plan = dict(action.get("plan") or {})
+            if not plan.get("workspace_path") and not plan.get("repo_path"):
+                for dependency_name in dependency_names:
+                    dependency_plan = dict(
+                        (actions_by_id.get(dependency_name) or {}).get("plan") or {}
+                    )
+                    inherited = (
+                        dependency_plan.get("workspace_path")
+                        or dependency_plan.get("repo_path")
+                    )
+                    if inherited:
+                        plan["workspace_path"] = inherited
+                        break
+            normalized_action["plan"] = plan
+
             raw_pri = action.get("priority", "medium")
             if isinstance(raw_pri, str):
-                priority = TaskPriority(raw_pri) if raw_pri in ("high", "medium", "low") else TaskPriority.medium
+                priority = (
+                    TaskPriority(raw_pri)
+                    if raw_pri in ("high", "medium", "low")
+                    else TaskPriority.medium
+                )
             elif isinstance(raw_pri, (int, float)):
                 priority = TaskPriority.high if raw_pri <= 1 else TaskPriority.medium
             else:
                 priority = TaskPriority.medium
 
             try:
+                normalization_state = self._state.model_copy(deep=False)
+                normalization_state.tasks = [*self._state.tasks, *tasks]
                 agent, kind, capability, plan = normalize_recommended_action(
-                    action, self._state,
+                    normalized_action, normalization_state,
                 )
             except ValueError as exc:
                 self._normalization_issues.append(str(exc))
                 continue
 
+            workspace_path = _infer_workspace_path(self._state, plan, action)
             task_input = {
                 "description": action.get("rationale", ""),
-                "action_type": action_type,
+                "action_type": action.get("type", "ask_user"),
                 "task_goal": plan.get("task_goal", ""),
                 "paper_url": plan.get("paper_url", ""),
                 "repo_url": plan.get("repo_url", ""),
@@ -354,8 +386,11 @@ class ExpAgentAdapter:
                 "search_query": plan.get("search_query", ""),
                 "question": plan.get("question", ""),
                 "supersedes_task_id": plan.get("supersedes_task_id", ""),
-                "workspace_path": _infer_workspace_path(
-                    self._state, plan, action,
+                "workspace_path": workspace_path,
+                "source_workspace": (
+                    workspace_path
+                    if dependency_names and agent == Producer.ReproAgent
+                    else ""
                 ),
                 "constraints": _infer_constraints(plan),
                 "verify_commands": _infer_verify_commands(plan),
@@ -364,12 +399,18 @@ class ExpAgentAdapter:
                 "expected_runtime": plan.get("expected_runtime", ""),
             }
             fingerprint = task_fingerprint(agent, capability, task_input)
-            if (self._state.find_task_by_fingerprint(fingerprint) is not None
-                    or any(t.fingerprint == fingerprint for t in tasks)):
+            equivalent = self._state.find_task_by_fingerprint(fingerprint)
+            if equivalent is None:
+                equivalent = next(
+                    (item for item in tasks if item.fingerprint == fingerprint), None
+                )
+            if equivalent is not None:
+                if action_id:
+                    action_tasks[action_id] = equivalent
                 continue
 
             task = AgentTask(
-                id=f"task_{next_num + len(tasks):03d}",
+                id=f"task_{next_num + index:03d}",
                 source=source,
                 agent=agent,
                 kind=kind,
@@ -377,10 +418,19 @@ class ExpAgentAdapter:
                 capability=capability,
                 required=required_from_priority(priority, action),
                 fingerprint=fingerprint,
+                action_id=action_id,
+                project_ref=str(action.get("project_ref", "")).strip(),
                 input=task_input,
             )
             tasks.append(task)
+            pending_dependencies.append((task, dependency_names))
+            if action_id:
+                action_tasks[action_id] = task
 
+        if self._normalization_issues:
+            return []
+        for task, dependency_names in pending_dependencies:
+            task.depends_on = [action_tasks[name].id for name in dependency_names]
         return tasks
 
     def _ensure_import(self):
@@ -403,6 +453,49 @@ class ExpAgentAdapter:
                 f"Set --expagent-path or EXPAGENT_PATH. Error: {e}"
             )
         self._imported = True
+
+
+def _dependency_graph_issues(actions: list[dict]) -> list[str]:
+    """Validate decision-local dependency IDs and reject cycles atomically."""
+    issues: list[str] = []
+    identifiers = [
+        str(action.get("action_id", "")).strip() for action in actions
+        if str(action.get("action_id", "")).strip()
+    ]
+    if len(identifiers) != len(set(identifiers)):
+        issues.append("recommended actions contain duplicate action_id values")
+    known = set(identifiers)
+    graph: dict[str, list[str]] = {}
+    for index, action in enumerate(actions):
+        action_id = str(action.get("action_id", "")).strip()
+        dependencies = [str(value).strip() for value in action.get("depends_on", [])]
+        if dependencies and not action_id:
+            issues.append(f"recommended action {index} has dependencies but no action_id")
+        for dependency in dependencies:
+            if dependency not in known:
+                issues.append(
+                    f"recommended action {action_id or index} has unknown dependency {dependency!r}"
+                )
+        if action_id:
+            graph[action_id] = dependencies
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(node: str) -> bool:
+        if node in visiting:
+            return True
+        if node in visited:
+            return False
+        visiting.add(node)
+        cyclic = any(visit(dep) for dep in graph.get(node, []) if dep in graph)
+        visiting.remove(node)
+        visited.add(node)
+        return cyclic
+
+    if any(visit(node) for node in graph if node not in visited):
+        issues.append("recommended action dependency graph contains a cycle")
+    return issues
 
 
 def _clamp_artifact_ref_type(t: str) -> str:

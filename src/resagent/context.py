@@ -120,6 +120,7 @@ def build_reproagent_context(task: AgentTask) -> dict:
     return {
         "paper_url": task.input.get("paper_url", ""),
         "repo_url": task.input.get("repo_url", ""),
+        "source_workspace": task.input.get("source_workspace", ""),
         "experiment_goal": task.input.get("experiment_goal", ""),
         "workspace_dir": task.input.get("workspace_dir", ""),
         "api_base": task.input.get("api_base", ""),
@@ -146,7 +147,8 @@ def _format_tasks(tasks: list[AgentTask]) -> str:
         attempts = f" attempts={len(t.attempts)}" if t.attempts else ""
         lines.append(f"- {marker} [{t.id}] {t.agent.value}/{t.kind.value} "
                      f"cap={t.capability or '-'} pri={t.priority.value} "
-                     f"required={t.required}{attempts}{err}")
+                     f"required={t.required} project={t.project_ref or '-'} "
+                     f"depends_on={t.depends_on or []}{attempts}{err}")
         inp = t.input
         if inp.get("paper_url"):
             lines.append(f"    paper_url: {inp['paper_url'][:100]}")

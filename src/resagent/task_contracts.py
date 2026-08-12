@@ -36,6 +36,17 @@ def action_for_agent(agent: Producer) -> ActionName | None:
     }.get(agent)
 
 
+def dependencies_satisfied(task, state: ResearchState) -> bool:
+    """Return whether every prerequisite task completed or was skipped."""
+    for task_id in task.depends_on:
+        dependency = state.find_task(task_id)
+        if dependency is None or dependency.status not in {
+            TaskStatus.completed, TaskStatus.skipped,
+        }:
+            return False
+    return True
+
+
 def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
     """Build exact actions the planner may choose in the current state."""
     if state.run.status in TERMINAL_RUN_STATUSES:
@@ -46,6 +57,8 @@ def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for task in state.tasks:
         if task.status not in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
+            continue
+        if not dependencies_satisfied(task, state):
             continue
         action = (
             ActionName.ask_user
@@ -152,7 +165,8 @@ def _infer_executor(kind: str, plan: dict[str, Any],
     if kind == "ask_user":
         return Producer.ResAgent
     if kind == "run_task":
-        if plan.get("repo_url") or plan.get("paper_url"):
+        if (plan.get("repo_url") or plan.get("paper_url")
+                or plan.get("workspace_path") or plan.get("repo_path")):
             return Producer.ReproAgent
         if any(task.agent == Producer.ReproAgent for task in state.tasks):
             return Producer.ReproAgent
@@ -177,9 +191,9 @@ def _inherit_repro_context(plan: dict[str, Any], state: ResearchState) -> None:
         plan["experiment_goal"] = (
             plan.get("command_goal") or plan.get("task_goal") or ""
         )
-    if not plan.get("repo_url"):
+    if not plan.get("repo_url") and not (plan.get("workspace_path") or plan.get("repo_path")):
         raise ValueError(
-            "reproduction task has no repo_url and none can be inherited"
+            "reproduction task has no repo_url or source workspace"
         )
 
 

@@ -130,6 +130,9 @@ class AgentTask(BaseModel):
     capability: str = ""
     required: bool = True
     fingerprint: str = ""
+    action_id: str = ""
+    depends_on: list[str] = Field(default_factory=list)  # ResAgent task ids
+    project_ref: str = ""
     input: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[str] = Field(default_factory=list)  # artifact ids
     attempts: list[Attempt] = Field(default_factory=list)

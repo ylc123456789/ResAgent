@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -49,6 +50,8 @@ class ReproAgentAdapter:
         task_dir.mkdir(parents=True, exist_ok=True)
         # ReproAgent's actual workspace (nested inside task dir)
         repro_ws = layout.reproagent_workspace(task_n, attempt_number)
+        if not self.mock:
+            _seed_source_workspace(spec.get("source_workspace", ""), repro_ws / "repo")
 
         layout.write_task_manifest(task_dir, task_id=task.id,
                                    module="ReproAgent", attempt=attempt_number,
@@ -253,3 +256,33 @@ class ReproAgentAdapter:
                 f"Set --reproagent-path or REPROAGENT_PATH. Error: {e}"
             )
         self._imported = True
+
+
+def _seed_source_workspace(source: str, destination: Path) -> None:
+    """Snapshot a dependency worktree into ReproAgent's isolated checkout.
+
+    Copying, rather than cloning, intentionally preserves CodingAgent's
+    uncommitted edits while keeping the source project untouched.
+    """
+    if not source:
+        return
+    source_path = Path(source).expanduser().resolve()
+    if not source_path.is_dir():
+        raise RuntimeError(f"dependent source workspace does not exist: {source_path}")
+    if destination.exists():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ignored_names = {
+        ".mypy_cache", ".pytest_cache", ".ruff_cache", "__pycache__",
+        ".venv", "venv", "node_modules",
+    }
+
+    def ignore(_directory, names):
+        return [name for name in names if name in ignored_names]
+
+    try:
+        shutil.copytree(source_path, destination, symlinks=True, ignore=ignore)
+    except Exception:
+        if destination.exists():
+            shutil.rmtree(destination)
+        raise

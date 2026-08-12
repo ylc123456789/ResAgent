@@ -83,6 +83,9 @@ python scripts/cloud_acceptance.py \
   --workspace /root/autodl-tmp/resagent-workspace --case repro
 
 python scripts/cloud_acceptance.py \
+  --workspace /root/autodl-tmp/resagent-workspace --case dependency-chain
+
+python scripts/cloud_acceptance.py \
   --workspace /root/autodl-tmp/resagent-workspace --case env-reuse
 ```
 
@@ -98,6 +101,9 @@ python scripts/cloud_acceptance.py \
 - state 中登记的 artifact 文件必须存在；
 - 环境复用 case 必须完成两个 ReproTask；
 - 两个 ReproTask 的 session 必须报告同一个环境 identity；
+- `dependency-chain` 必须先完成 CodingAgent，再运行 ReproAgent；
+- ReproAgent 的隔离快照必须包含 CodingAgent 尚未提交的修改；
+- 依赖未完成、引用不存在或依赖成环时不得调度后续任务；
 - GPU 可用且任务要求 GPU 时，结果中必须有 GPU 使用证据；
 - bounded 测试必须在报告中说明它不是论文完整复现。
 

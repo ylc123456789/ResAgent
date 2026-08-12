@@ -200,7 +200,77 @@ def case_env_reuse(config, workspace: Path) -> dict:
             "completed_repro_tasks": 2, "environments": sorted(envs)}
 
 
+def case_dependency_chain(config, workspace: Path) -> dict:
+    repo = workspace / "fixtures" / f"dependency-{int(time.time())}"
+    repo.mkdir(parents=True, exist_ok=False)
+    (repo / "README.md").write_text(
+        "# Dependency fixture\n\nRun `python train.py`; it prints VALUE.\n",
+        encoding="utf-8",
+    )
+    (repo / "train.py").write_text(
+        "EXPECTED_VALUE = 1\nprint(f'VALUE={EXPECTED_VALUE}')\n",
+        encoding="utf-8",
+    )
+    for command in (["git", "init"],
+                    ["git", "config", "user.email", "acceptance@example.com"],
+                    ["git", "config", "user.name", "Acceptance Test"],
+                    ["git", "add", "."],
+                    ["git", "commit", "-m", "fixture"]):
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+
+    state = init_run(
+        "Modify a project and verify the modified code in an isolated experiment.",
+        workspace_root=str(workspace / "runs"), config=config,
+    )
+    coding = AgentTask(
+        id="task_001", agent=Producer.CodingAgent,
+        kind=AgentKind.coding_task, capability="modify_code", required=True,
+        action_id="patch_value", project_ref="fixture",
+        input={
+            "workspace_path": str(repo),
+            "task_goal": "Change EXPECTED_VALUE in train.py from 1 to 2.",
+            "constraints": ["Only change the EXPECTED_VALUE assignment."],
+            "verify_commands": ["python train.py"],
+        },
+    )
+    repro = AgentTask(
+        id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, capability="run_experiment", required=True,
+        action_id="verify_value", depends_on=[coding.id], project_ref="fixture",
+        input={
+            "repo_url": str(repo),
+            "source_workspace": str(repo),
+            "experiment_goal": (
+                "Run python train.py once and report the exact VALUE output. "
+                "The required acceptance value is VALUE=2."
+            ),
+        },
+    )
+    state.tasks.extend([coding, repro])
+    controller = build_controller(config, mock=False)
+    controller.planner = SequencePlanner([
+        PlannedAction(ActionName.call_coding_agent, {"task_id": coding.id}),
+        PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
+        PlannedAction(ActionName.finish, {"summary": "dependency chain completed"}),
+    ])
+    observations = _step_until_stop(state, controller, max_steps=3)
+    assert coding.status == TaskStatus.completed
+    assert repro.status == TaskStatus.completed
+    assert "EXPECTED_VALUE = 2" in (repo / "train.py").read_text(encoding="utf-8")
+    copied = (Path(state.run.workspace_dir) / state.run.run_id / "tasks" /
+              "reproagent" / "task_002" / "attempt_001" /
+              "repo_workspace" / "repo" / "train.py")
+    assert "EXPECTED_VALUE = 2" in copied.read_text(encoding="utf-8")
+    assert "value=2" in _artifact_text(state).lower()
+    assert state.run.status == RunStatus.completed
+    _assert_artifacts_exist(state)
+    _assert_parent_links(state, {"codingagent", "reproagent"})
+    return {"run_id": state.run.run_id, "steps": len(observations),
+            "source_workspace": str(repo), "snapshot": str(copied)}
+
+
 CASES = {"coding": case_coding, "repro": case_repro,
+         "dependency-chain": case_dependency_chain,
          "env-reuse": case_env_reuse}
 
 

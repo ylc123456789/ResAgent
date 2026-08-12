@@ -18,7 +18,9 @@ from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
 from .policies.retry import RetryPolicy, classify_transient
 from .state import save_state
-from .task_contracts import TERMINAL_RUN_STATUSES, validate_finish
+from .task_contracts import (
+    TERMINAL_RUN_STATUSES, dependencies_satisfied, validate_finish,
+)
 from .workspace_layout import WorkspaceLayout
 
 
@@ -324,6 +326,19 @@ class Controller:
                 action=planned.action,
                 result="error",
                 detail=f"Task {task_id} belongs to {task.agent.value}, not {expected_agent.value}.",
+            )
+        if not dependencies_satisfied(task, state):
+            waiting = [
+                dependency for dependency in task.depends_on
+                if state.find_task(dependency) is None
+                or state.find_task(dependency).status not in {
+                    TaskStatus.completed, TaskStatus.skipped,
+                }
+            ]
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=f"Task {task_id} is waiting for dependencies: {waiting}.",
             )
         if task.status not in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
             return Observation(

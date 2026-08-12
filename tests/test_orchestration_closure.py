@@ -1,10 +1,12 @@
 """Deterministic closure tests for the four-module orchestration path."""
 
+from pathlib import Path
+
 import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
-from resagent.adapters.reproagent import ReproAgentAdapter
+from resagent.adapters.reproagent import ReproAgentAdapter, _seed_source_workspace
 from resagent.controller import Controller
 from resagent.models import (
     ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Producer,
@@ -13,6 +15,7 @@ from resagent.models import (
 from resagent.planner import PlannedAction
 from resagent.state import init_state, load_state, save_state, submit_user_response
 from resagent.workspace_layout import WorkspaceLayout
+from resagent.task_contracts import allowed_action_candidates
 
 
 class ScriptedPlanner:
@@ -177,3 +180,77 @@ def test_followup_run_task_becomes_second_repro_task(tmp_path):
     assert followup[0].agent == Producer.ReproAgent
     assert followup[0].input["repo_url"] == "r"
     assert followup[0].input["experiment_goal"] == "run 3 epochs"
+
+
+def test_same_decision_dependency_chain_routes_and_orders_tasks(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "train.py").write_text("print('original')\n", encoding="utf-8")
+    state = init_state("dependency-chain", str(tmp_path), "goal")
+    adapter = ExpAgentAdapter(mock=True)
+    adapter._state = state
+    actions = [
+        {
+            "priority": "high", "type": "coding_task",
+            "action_id": "patch", "project_ref": "project",
+            "rationale": "patch",
+            "plan": {"kind": "coding_task", "workspace_path": str(repo),
+                     "task_goal": "change training"},
+        },
+        {
+            "priority": "high", "type": "run_task",
+            "action_id": "run", "depends_on": ["patch"],
+            "project_ref": "project", "rationale": "verify",
+            "plan": {"kind": "run_task", "command_goal": "run one epoch"},
+        },
+    ]
+    tasks = adapter._actions_to_tasks(actions, "decision", 1)
+    state.tasks.extend(tasks)
+    assert [task.agent for task in tasks] == [Producer.CodingAgent, Producer.ReproAgent]
+    assert tasks[1].depends_on == [tasks[0].id]
+    assert tasks[1].input["source_workspace"] == str(repo)
+    assert {"action": "call_coding_agent", "task_id": tasks[0].id} in allowed_action_candidates(state)
+    assert {"action": "call_repro_agent", "task_id": tasks[1].id} not in allowed_action_candidates(state)
+    tasks[0].status = TaskStatus.completed
+    assert {"action": "call_repro_agent", "task_id": tasks[1].id} in allowed_action_candidates(state)
+
+
+def test_dependency_cycle_is_rejected_atomically(tmp_path):
+    state = init_state("dependency-cycle", str(tmp_path), "goal")
+    adapter = ExpAgentAdapter(mock=True)
+    adapter._state = state
+    tasks = adapter._actions_to_tasks([
+        {"type": "coding_task", "action_id": "a", "depends_on": ["b"],
+         "rationale": "a", "plan": {"kind": "coding_task", "task_goal": "a"}},
+        {"type": "coding_task", "action_id": "b", "depends_on": ["a"],
+         "rationale": "b", "plan": {"kind": "coding_task", "task_goal": "b"}},
+    ], "decision", 1)
+    assert tasks == []
+    assert any("cycle" in issue for issue in adapter._normalization_issues)
+
+
+def test_direct_dispatch_cannot_bypass_dependencies(tmp_path):
+    state = init_state("dependency-guard", str(tmp_path), "goal")
+    prerequisite = AgentTask(id="task_001", agent=Producer.CodingAgent,
+        kind=AgentKind.coding_task)
+    dependent = AgentTask(id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, depends_on=[prerequisite.id])
+    state.tasks.extend([prerequisite, dependent])
+    ctrl = _controller(ScriptedPlanner([
+        PlannedAction(ActionName.call_repro_agent, {"task_id": dependent.id}),
+    ]))
+    observation = ctrl.step(state)
+    assert observation.result == "error"
+    assert "waiting for dependencies" in observation.detail
+
+
+def test_source_workspace_snapshot_preserves_uncommitted_edits(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "run" / "repo"
+    source.mkdir()
+    (source / "train.py").write_text("patched = True\n", encoding="utf-8")
+    (source / "__pycache__").mkdir()
+    (source / "__pycache__" / "ignored.pyc").write_bytes(b"cache")
+    _seed_source_workspace(str(source), destination)
+    assert (destination / "train.py").read_text(encoding="utf-8") == "patched = True\n"
+    assert not (destination / "__pycache__").exists()
