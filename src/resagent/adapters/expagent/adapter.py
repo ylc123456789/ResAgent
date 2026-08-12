@@ -8,19 +8,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
-from ..models import (
-    Artifact, ArtifactType, Producer, AgentTask, AgentKind, TaskPriority,
-)
-from ..task_contracts import (
-    normalize_recommended_action,
-    required_from_priority,
-    task_fingerprint,
-)
-from ..workspace_layout import WorkspaceLayout
+from ...models import Artifact, ArtifactType, Producer, AgentTask
+from .task_conversion import actions_to_tasks
 
 
 class ExpAgentAdapter:
@@ -57,7 +49,7 @@ class ExpAgentAdapter:
         if self.mock:
             raw = self._mock_advise(state)
             dec_dir.mkdir(parents=True, exist_ok=True)
-            from ..session_cards import write_mock_card
+            from ...persistence.sessions import write_mock_card
             write_mock_card(dec_dir / "session.yaml", module="expagent",
                             session_id=f"exp-mock-{dec_num:03d}",
                             kind="advisory_session",
@@ -123,7 +115,7 @@ class ExpAgentAdapter:
             raw = self._mock_adhoc(situation)
             out = Path(out_dir)
             out.mkdir(parents=True, exist_ok=True)
-            from ..session_cards import write_mock_card
+            from ...persistence.sessions import write_mock_card
             write_mock_card(out / "session.yaml", module="expagent",
                             session_id="exp-mock-adhoc", kind="advisory_session",
                             summary=raw.get("summary", "")[:100])
@@ -317,129 +309,9 @@ class ExpAgentAdapter:
         self, actions: list[dict], source: str, next_num: int
     ) -> list[AgentTask]:
         """Convert one validated ExpAgent action graph into ResAgent tasks."""
-        self._normalization_issues = _dependency_graph_issues(actions)
-        if self._normalization_issues:
-            return []
-
-        tasks: list[AgentTask] = []
-        action_tasks: dict[str, AgentTask] = {}
-        pending_dependencies: list[tuple[AgentTask, list[str]]] = []
-        actions_by_id = {
-            str(action.get("action_id", "")).strip(): action
-            for action in actions
-            if str(action.get("action_id", "")).strip()
-        }
-
-        for index, action in enumerate(actions):
-            action_id = str(action.get("action_id", "")).strip()
-            dependency_names = [
-                str(value).strip() for value in action.get("depends_on", [])
-            ]
-            normalized_action = dict(action)
-            plan = dict(action.get("plan") or {})
-            if not plan.get("workspace_path") and not plan.get("repo_path"):
-                for dependency_name in dependency_names:
-                    dependency_task = action_tasks.get(dependency_name)
-                    if dependency_task is not None:
-                        inherited = (
-                            dependency_task.input.get("workspace_path")
-                            or dependency_task.input.get("source_workspace")
-                        )
-                        if inherited:
-                            plan["workspace_path"] = inherited
-                            break
-                    dependency_plan = dict(
-                        (actions_by_id.get(dependency_name) or {}).get("plan") or {}
-                    )
-                    inherited = (
-                        dependency_plan.get("workspace_path")
-                        or dependency_plan.get("repo_path")
-                    )
-                    if inherited:
-                        plan["workspace_path"] = inherited
-                        break
-            normalized_action["plan"] = plan
-
-            raw_pri = action.get("priority", "medium")
-            if isinstance(raw_pri, str):
-                priority = (
-                    TaskPriority(raw_pri)
-                    if raw_pri in ("high", "medium", "low")
-                    else TaskPriority.medium
-                )
-            elif isinstance(raw_pri, (int, float)):
-                priority = TaskPriority.high if raw_pri <= 1 else TaskPriority.medium
-            else:
-                priority = TaskPriority.medium
-
-            try:
-                normalization_state = self._state.model_copy(deep=False)
-                normalization_state.tasks = [*self._state.tasks, *tasks]
-                agent, kind, capability, plan = normalize_recommended_action(
-                    normalized_action, normalization_state,
-                )
-            except ValueError as exc:
-                self._normalization_issues.append(str(exc))
-                continue
-
-            workspace_path = _infer_workspace_path(self._state, plan, action)
-            task_input = {
-                "description": action.get("rationale", ""),
-                "action_type": action.get("type", "ask_user"),
-                "task_goal": plan.get("task_goal", ""),
-                "paper_url": plan.get("paper_url", ""),
-                "repo_url": plan.get("repo_url", ""),
-                "experiment_goal": plan.get("experiment_goal", ""),
-                "expected_metrics": plan.get("expected_metrics", []),
-                "command_goal": plan.get("command_goal", ""),
-                "search_query": plan.get("search_query", ""),
-                "question": plan.get("question", ""),
-                "supersedes_task_id": plan.get("supersedes_task_id", ""),
-                "workspace_path": workspace_path,
-                "source_workspace": (
-                    workspace_path
-                    if dependency_names and agent == Producer.ReproAgent
-                    else ""
-                ),
-                "constraints": _infer_constraints(plan),
-                "verify_commands": _infer_verify_commands(plan),
-                "expected_artifacts": plan.get("expected_artifacts", []),
-                "requires_gpu": plan.get("requires_gpu", False),
-                "expected_runtime": plan.get("expected_runtime", ""),
-            }
-            fingerprint = task_fingerprint(agent, capability, task_input)
-            equivalent = self._state.find_task_by_fingerprint(fingerprint)
-            if equivalent is None:
-                equivalent = next(
-                    (item for item in tasks if item.fingerprint == fingerprint), None
-                )
-            if equivalent is not None:
-                if action_id:
-                    action_tasks[action_id] = equivalent
-                continue
-
-            task = AgentTask(
-                id=f"task_{next_num + index:03d}",
-                source=source,
-                agent=agent,
-                kind=kind,
-                priority=priority,
-                capability=capability,
-                required=required_from_priority(priority, action),
-                fingerprint=fingerprint,
-                action_id=action_id,
-                project_ref=str(action.get("project_ref", "")).strip(),
-                input=task_input,
-            )
-            tasks.append(task)
-            pending_dependencies.append((task, dependency_names))
-            if action_id:
-                action_tasks[action_id] = task
-
-        if self._normalization_issues:
-            return []
-        for task, dependency_names in pending_dependencies:
-            task.depends_on = [action_tasks[name].id for name in dependency_names]
+        tasks, self._normalization_issues = actions_to_tasks(
+            actions, self._state, source, next_num,
+        )
         return tasks
 
     def _ensure_import(self):
@@ -464,47 +336,6 @@ class ExpAgentAdapter:
         self._imported = True
 
 
-def _dependency_graph_issues(actions: list[dict]) -> list[str]:
-    """Validate decision-local dependency IDs and reject cycles atomically."""
-    issues: list[str] = []
-    identifiers = [
-        str(action.get("action_id", "")).strip() for action in actions
-        if str(action.get("action_id", "")).strip()
-    ]
-    if len(identifiers) != len(set(identifiers)):
-        issues.append("recommended actions contain duplicate action_id values")
-    known = set(identifiers)
-    graph: dict[str, list[str]] = {}
-    for index, action in enumerate(actions):
-        action_id = str(action.get("action_id", "")).strip()
-        dependencies = [str(value).strip() for value in action.get("depends_on", [])]
-        for dependency in dependencies:
-            if dependency not in known:
-                issues.append(
-                    f"recommended action {action_id or index} has unknown dependency {dependency!r}"
-                )
-        if action_id:
-            graph[action_id] = dependencies
-
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(node: str) -> bool:
-        if node in visiting:
-            return True
-        if node in visited:
-            return False
-        visiting.add(node)
-        cyclic = any(visit(dep) for dep in graph.get(node, []) if dep in graph)
-        visiting.remove(node)
-        visited.add(node)
-        return cyclic
-
-    if any(visit(node) for node in graph if node not in visited):
-        issues.append("recommended action dependency graph contains a cycle")
-    return issues
-
-
 def _clamp_artifact_ref_type(t: str) -> str:
     """Clamp to ExpAgent ArtifactRef's accepted type vocabulary."""
     allowed = {"repro_result", "code_patch", "run_log", "metric_summary", "other"}
@@ -522,81 +353,6 @@ def _map_artifact_type(t: str) -> str:
         "experiment_plan": "other",
     }
     return mapping.get(t, "other")
-
-
-# ── Parameter inference helpers ───────────────────────────────────────────────
-# These fill operational fields that ExpAgent leaves empty.
-# ExpAgent's job is scientific decisions; ResAgent's job is operational params.
-
-
-def _infer_workspace_path(state, plan: dict, action: dict) -> str:
-    """Infer the workspace path for a coding task.
-
-    Priority:
-    1. ExpAgent-provided value (respect scientific judgment)
-    2. Extract from research goal text
-    3. Inherit from existing tasks
-    4. Empty string (LLM Planner or user fills in)
-    """
-    # 1. ExpAgent already filled it (new name or old compat name)
-    for key in ("workspace_path", "repo_path"):
-        val = plan.get(key, "")
-        if val and val.strip():
-            return val.strip()
-
-    # 2. Try extracting from research goal
-    goal = state.run.research_goal if state else ""
-    for pattern in [r'(/[^\s,;]+)', r'([A-Za-z]:\\[^\s,;]+)']:
-        match = re.search(pattern, goal)
-        if match:
-            path = match.group(1).rstrip(".")
-            # Skip URLs and bare hostnames (e.g. "//github.com/pytorch")
-            if "://" in path or path.startswith("//"):
-                continue
-            # If it looks like a file path, use parent directory
-            if "." in os.path.basename(path) and not os.path.isdir(path):
-                parent = os.path.dirname(path)
-                if parent:
-                    return parent
-            return path
-
-    # 3. Inherit from existing tasks
-    if state:
-        for t in state.tasks:
-            for key in ("workspace_path", "repo_path"):
-                p = t.input.get(key, "")
-                if p:
-                    return p
-
-    return ""
-
-
-def _infer_constraints(plan: dict) -> list[str]:
-    """Generate default constraints if ExpAgent didn't provide them."""
-    existing = plan.get("constraints", [])
-    if existing:
-        return list(existing) if isinstance(existing, list) else [existing]
-
-    kind = plan.get("kind", "")
-    defaults = {
-        "coding_task": [
-            "Do not change training semantics or model architecture",
-            "Only modify files necessary for the stated goal",
-        ],
-    }
-    return defaults.get(kind, [])
-
-
-def _infer_verify_commands(plan: dict) -> list[str]:
-    """Generate default verify commands if ExpAgent didn't provide them."""
-    existing = plan.get("verify_commands", [])
-    if existing:
-        return list(existing) if isinstance(existing, list) else [existing]
-
-    kind = plan.get("kind", "")
-    if kind == "coding_task":
-        return ["python -m py_compile *.py"]
-    return []
 
 
 def _patch_session_key_artifacts(card_path: Path, artifact_type: str,
