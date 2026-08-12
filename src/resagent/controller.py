@@ -18,6 +18,7 @@ from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
 from .policies.retry import RetryPolicy, classify_transient
 from .state import save_state
+from .task_contracts import TERMINAL_RUN_STATUSES, validate_finish
 from .workspace_layout import WorkspaceLayout
 
 
@@ -40,6 +41,15 @@ class Controller:
 
     def step(self, state: ResearchState) -> Observation:
         """Execute one action, respecting persisted pause and retry state."""
+        if state.run.status in TERMINAL_RUN_STATUSES:
+            observation = Observation(
+                action=ActionName.finish,
+                result="terminal",
+                detail=f"Run is already {state.run.status.value}.",
+            )
+            state.observations.append(observation)
+            return observation
+
         if state.pending_question is not None or state.run.status == RunStatus.paused:
             observation = Observation(
                 action=ActionName.ask_user,
@@ -62,7 +72,7 @@ class Controller:
         state.observations.append(observation)
         state.budget.api_calls_used += 1
 
-        if observation.action == ActionName.finish:
+        if observation.action == ActionName.finish and observation.result == "ok":
             state.run.status = RunStatus.completed
             state.current_summary = observation.detail
         elif observation.result == "user_response_required":
@@ -75,7 +85,7 @@ class Controller:
             obs = self.step(state)
             save_state(state)
 
-            if obs.action == ActionName.finish:
+            if obs.action == ActionName.finish and obs.result in {"ok", "terminal"}:
                 save_state(state)
                 break
 
@@ -105,6 +115,17 @@ class Controller:
     def _handle_exp_agent(self, state, planned, layout) -> Observation:
         task = None
         task_id = planned.params.get("task_id", "")
+        pending = [
+            t.id for t in state.tasks
+            if t.agent == Producer.ExpAgent and t.status == TaskStatus.pending
+        ]
+        if not task_id and pending:
+            return Observation(
+                action=ActionName.call_exp_agent,
+                result="error",
+                detail=f"ExpAgent task_id is required. Pending: {pending}",
+                task_ids=pending,
+            )
         if task_id:
             task = self._require_task(state, planned, Producer.ExpAgent)
             if isinstance(task, Observation):
@@ -126,6 +147,7 @@ class Controller:
                 previous.error = f"Superseded by {spawned.id}."
             state.tasks.append(spawned)
 
+        issues = result["raw"].get("_normalization_issues", [])
         task_ids = [t.id for t in result.get("tasks", [])]
         if task is not None:
             task.status = TaskStatus.completed
@@ -137,8 +159,11 @@ class Controller:
 
         return Observation(
             action=ActionName.call_exp_agent,
-            result="ok",
-            detail=planned.analysis or result["raw"].get("summary", ""),
+            result="error" if issues else "ok",
+            detail=(
+                "Task contract validation failed: " + "; ".join(issues)
+                if issues else planned.analysis or result["raw"].get("summary", "")
+            ),
             artifact_ids=[artifact.id],
             task_ids=task_ids,
         )
@@ -332,6 +357,14 @@ class Controller:
     def _handle_ask_user(self, state, planned, layout) -> Observation:
         question_text = planned.params.get("question", "Continue?")
 
+        task_id = planned.params.get("task_id", "")
+        if task_id:
+            task = self._require_task(state, planned, Producer.ResAgent)
+            if isinstance(task, Observation):
+                return task
+            task.status = TaskStatus.needs_user_input
+            question_text = task.input.get("question") or question_text
+
         # Check if same question is already pending — no duplicate
         if state.pending_question is not None:
             return Observation(
@@ -345,7 +378,7 @@ class Controller:
         state.pending_question = PendingQuestion(
             question_id=f"q_{uuid.uuid4().hex[:8]}",
             text=question_text,
-            task_id=planned.params.get("task_id"),
+            task_id=task_id or None,
             requested_fields=planned.params.get("requested_fields", []),
         )
 
@@ -356,6 +389,14 @@ class Controller:
         )
 
     def _handle_finish(self, state, planned, layout) -> Observation:
+        check = validate_finish(state)
+        if not check.allowed:
+            return Observation(
+                action=ActionName.finish,
+                result="rejected",
+                detail=f"Cannot finish: {check.reason}.",
+                task_ids=list(check.task_ids),
+            )
         return Observation(
             action=ActionName.finish,
             result="ok",

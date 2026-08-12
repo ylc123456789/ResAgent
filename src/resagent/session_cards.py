@@ -55,7 +55,8 @@ def card_to_session_ref(card: dict, manifest_path: str, run_id: str = "") -> dic
 
 def write_mock_card(path: str | Path, *, module: str, session_id: str,
                     kind: str = "task_session", status: str = "completed",
-                    summary: str = "mock session") -> None:
+                    summary: str = "mock session",
+                    parent: dict | None = None) -> None:
     """Write a minimal card. Used by adapter mock paths so mock end-to-end
     flows exercise the same index machinery as real runs."""
     import datetime
@@ -69,6 +70,7 @@ def write_mock_card(path: str | Path, *, module: str, session_id: str,
         "created_at": now,
         "updated_at": now,
         "summary": summary,
+        "parent": parent,
     }
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

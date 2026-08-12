@@ -57,10 +57,17 @@ class ReproAgentAdapter:
         if self.mock:
             raw = self._mock_execute(spec)
             outcome = "completed"
+            repro_ws.mkdir(parents=True, exist_ok=True)
+            (repro_ws / "result.md").write_text(
+                f"# Mock Reproduction Result\n\n{raw['summary']}\n",
+                encoding="utf-8",
+            )
             from ..session_cards import write_mock_card
             write_mock_card(repro_ws / "session.yaml", module="reproagent",
                             session_id=f"repro-mock-{task_num}",
-                            summary=raw.get("summary", "")[:100])
+                            summary=raw.get("summary", "")[:100],
+                            parent={"module": "resagent", "run_id": layout.run_id,
+                                    "task_id": task.id, "attempt": attempt_number})
         else:
             raw, outcome = self._call_execute(
                 spec, repro_ws,

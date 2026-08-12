@@ -127,6 +127,9 @@ class AgentTask(BaseModel):
     kind: AgentKind
     status: TaskStatus = TaskStatus.pending
     priority: TaskPriority = TaskPriority.medium
+    capability: str = ""
+    required: bool = True
+    fingerprint: str = ""
     input: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[str] = Field(default_factory=list)  # artifact ids
     attempts: list[Attempt] = Field(default_factory=list)
@@ -196,6 +199,15 @@ class ResearchState(BaseModel):
         for t in self.tasks:
             if t.id == task_id:
                 return t
+        return None
+
+    def find_task_by_fingerprint(self, fingerprint: str) -> AgentTask | None:
+        """Return an existing semantically equivalent task, if any."""
+        if not fingerprint:
+            return None
+        for task in self.tasks:
+            if task.fingerprint == fingerprint:
+                return task
         return None
 
     def find_artifact(self, artifact_id: str) -> Artifact | None:

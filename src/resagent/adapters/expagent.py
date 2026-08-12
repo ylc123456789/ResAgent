@@ -15,6 +15,11 @@ from pathlib import Path
 from ..models import (
     Artifact, ArtifactType, Producer, AgentTask, AgentKind, TaskPriority,
 )
+from ..task_contracts import (
+    normalize_recommended_action,
+    required_from_priority,
+    task_fingerprint,
+)
 from ..workspace_layout import WorkspaceLayout
 
 
@@ -56,7 +61,10 @@ class ExpAgentAdapter:
             write_mock_card(dec_dir / "session.yaml", module="expagent",
                             session_id=f"exp-mock-{dec_num:03d}",
                             kind="advisory_session",
-                            summary=raw.get("summary", "")[:100])
+                            summary=raw.get("summary", "")[:100],
+                            parent={"module": "resagent",
+                                    "run_id": state.run.run_id,
+                                    "task_id": f"exp_decision_{dec_num:03d}"})
         else:
             ctx = self._build_advisor_context(state)
             raw = self._call_advise(ctx, exp_run_dir)
@@ -91,6 +99,8 @@ class ExpAgentAdapter:
             source=artifact.id,
             next_num=state.next_task_number(),
         )
+        if self._normalization_issues:
+            raw["_normalization_issues"] = self._normalization_issues
 
         return {"artifact": artifact, "tasks": tasks, "raw": raw}
 
@@ -309,24 +319,13 @@ class ExpAgentAdapter:
         """Convert ExpAgent recommended_actions into ResAgent AgentTasks.
 
         ExpAgent fills scientific fields (kind, task_goal, rationale, etc.).
-        ResAgent fills operational fields (workspace_path, constraints,
-        verify_commands) via inference from the current state.
+        ResAgent normalizes executor/capability and fills operational fields.
         """
+        self._normalization_issues: list[str] = []
         tasks = []
-        kind_map = {
-            "coding_task": (AgentKind.coding_task, Producer.CodingAgent),
-            "repro_task": (AgentKind.repro_task, Producer.ReproAgent),
-            "run_task": (AgentKind.advise, Producer.ExpAgent),
-            "result_analysis": (AgentKind.advise, Producer.ExpAgent),
-            "literature_search": (AgentKind.advise, Producer.ExpAgent),
-            "ask_user": (AgentKind.ask_user, Producer.ResAgent),
-        }
 
-        for i, action in enumerate(actions):
+        for action in actions:
             action_type = action.get("type", "ask_user")
-            plan = action.get("plan", {})
-
-            kind, agent = kind_map.get(action_type, (AgentKind.advise, Producer.ExpAgent))
             raw_pri = action.get("priority", "medium")
             if isinstance(raw_pri, str):
                 priority = TaskPriority(raw_pri) if raw_pri in ("high", "medium", "low") else TaskPriority.medium
@@ -335,32 +334,50 @@ class ExpAgentAdapter:
             else:
                 priority = TaskPriority.medium
 
+            try:
+                agent, kind, capability, plan = normalize_recommended_action(
+                    action, self._state,
+                )
+            except ValueError as exc:
+                self._normalization_issues.append(str(exc))
+                continue
+
+            task_input = {
+                "description": action.get("rationale", ""),
+                "action_type": action_type,
+                "task_goal": plan.get("task_goal", ""),
+                "paper_url": plan.get("paper_url", ""),
+                "repo_url": plan.get("repo_url", ""),
+                "experiment_goal": plan.get("experiment_goal", ""),
+                "expected_metrics": plan.get("expected_metrics", []),
+                "command_goal": plan.get("command_goal", ""),
+                "search_query": plan.get("search_query", ""),
+                "question": plan.get("question", ""),
+                "supersedes_task_id": plan.get("supersedes_task_id", ""),
+                "workspace_path": _infer_workspace_path(
+                    self._state, plan, action,
+                ),
+                "constraints": _infer_constraints(plan),
+                "verify_commands": _infer_verify_commands(plan),
+                "expected_artifacts": plan.get("expected_artifacts", []),
+                "requires_gpu": plan.get("requires_gpu", False),
+                "expected_runtime": plan.get("expected_runtime", ""),
+            }
+            fingerprint = task_fingerprint(agent, capability, task_input)
+            if (self._state.find_task_by_fingerprint(fingerprint) is not None
+                    or any(t.fingerprint == fingerprint for t in tasks)):
+                continue
+
             task = AgentTask(
-                id=f"task_{next_num + i:03d}",
+                id=f"task_{next_num + len(tasks):03d}",
                 source=source,
                 agent=agent,
                 kind=kind,
                 priority=priority,
-                input={
-                    "description": action.get("rationale", ""),
-                    "action_type": action_type,
-                    # ── ExpAgent fills these ──────────────────────
-                    "task_goal": plan.get("task_goal", ""),
-                    "paper_url": plan.get("paper_url", ""),
-                    "repo_url": plan.get("repo_url", ""),
-                    "experiment_goal": plan.get("experiment_goal", ""),
-                    "expected_metrics": plan.get("expected_metrics", []),
-                    "command_goal": plan.get("command_goal", ""),
-                    "search_query": plan.get("search_query", ""),
-                    "question": plan.get("question", ""),
-                    "supersedes_task_id": plan.get("supersedes_task_id", ""),
-                    # ── ResAgent fills these (or uses ExpAgent's if provided) ──
-                    "workspace_path": _infer_workspace_path(
-                        self._state, plan, action),
-                    "constraints": _infer_constraints(plan),
-                    "verify_commands": _infer_verify_commands(plan),
-                    "expected_artifacts": plan.get("expected_artifacts", []),
-                },
+                capability=capability,
+                required=required_from_priority(priority, action),
+                fingerprint=fingerprint,
+                input=task_input,
             )
             tasks.append(task)
 

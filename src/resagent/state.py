@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import ResearchState, ResearchRun, RunStatus
+from .models import ResearchState, ResearchRun, RunStatus, TaskStatus
 
 
 def workspace_path(workspace_dir: str, run_id: str) -> Path:
@@ -79,6 +79,11 @@ def submit_user_response(state: ResearchState, question_id: str, response: str) 
         raise ValueError("User response must not be empty.")
     question.response = answer
     question.answered_at = datetime.now(timezone.utc)
+    if question.task_id:
+        task = state.find_task(question.task_id)
+        if task is not None and task.status == TaskStatus.needs_user_input:
+            task.status = TaskStatus.completed
+            task.error = ""
     state.answered_questions.append(question)
     state.pending_question = None
     state.run.status = RunStatus.running

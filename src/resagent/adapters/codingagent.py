@@ -47,12 +47,26 @@ class CodingAgentAdapter:
 
         if self.mock:
             raw = self._mock_execute(spec)
+            (out_dir / "patch_report.md").write_text(
+                f"# Mock CodingAgent Report\n\n{raw['summary']}\n",
+                encoding="utf-8",
+            )
             from ..session_cards import write_mock_card
             write_mock_card(out_dir / "session.yaml", module="codingagent",
                             session_id=f"code-mock-{task_num}",
-                            summary=raw.get("summary", "")[:100])
+                            summary=raw.get("summary", "")[:100],
+                            parent={"module": "resagent",
+                                    "run_id": layout.run_id,
+                                    "task_id": task.id,
+                                    "attempt": attempt_number})
         else:
-            raw = self._call_execute(spec, out_dir)
+            raw = self._call_execute(
+                spec, out_dir,
+                parent_run={"module": "resagent",
+                            "run_id": layout.run_id,
+                            "task_id": task.id,
+                            "attempt": attempt_number},
+            )
 
         # Write adapter result WITHOUT overwriting CodingAgent's own state.json
         adapter_file = out_dir / layout.resagent_adapter_result()
@@ -169,7 +183,8 @@ class CodingAgentAdapter:
         )
         return result.model_dump() if hasattr(result, "model_dump") else {"summary": str(result)}
 
-    def _call_execute(self, spec: dict, out_dir: Path) -> dict:
+    def _call_execute(self, spec: dict, out_dir: Path,
+                      parent_run: dict | None = None) -> dict:
         self._ensure_import()
         from coding_agent import CodeTaskSpec, run_code_task
 
@@ -183,6 +198,7 @@ class CodingAgentAdapter:
             model=self.model,
             api_base=self.api_base,
             api_key_env=self.api_key_env,
+            parent_run=parent_run,
             output_dir=out_dir,
         )
 

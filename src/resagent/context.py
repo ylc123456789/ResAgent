@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .context_policy import ContextPolicy
 from .models import ResearchState, AgentTask, Observation, DecisionRecord
+from .task_contracts import allowed_action_candidates
 
 
 # ── Controller context (for LLM planner) ──────────────────────────────────────
@@ -65,6 +66,10 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
     obs_text = _format_observations(state.observations, policy)
     if obs_text:
         parts.append(f"\n## Recent Observations\n{obs_text}")
+
+    candidates = allowed_action_candidates(state)
+    parts.append("\n## Allowed Actions\n" +
+                 "\n".join(f"- {item}" for item in candidates))
 
     # Budget enforcement: if total exceeds budget, trim lowest-priority sections
     parts = _enforce_budget(parts, budget_chars)
@@ -140,7 +145,8 @@ def _format_tasks(tasks: list[AgentTask]) -> str:
         err = f" ({t.error[:80]})" if t.error else ""
         attempts = f" attempts={len(t.attempts)}" if t.attempts else ""
         lines.append(f"- {marker} [{t.id}] {t.agent.value}/{t.kind.value} "
-                     f"pri={t.priority.value}{attempts}{err}")
+                     f"cap={t.capability or '-'} pri={t.priority.value} "
+                     f"required={t.required}{attempts}{err}")
         inp = t.input
         if inp.get("paper_url"):
             lines.append(f"    paper_url: {inp['paper_url'][:100]}")
