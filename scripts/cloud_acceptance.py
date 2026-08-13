@@ -138,7 +138,7 @@ def case_repro(
     if local_repo is not None:
         source = workspace / "fixtures" / f"torchdiffeq-local-{int(time.time())}"
         shutil.copytree(
-            local_repo, source,
+            local_repo, source, symlinks=True,
             ignore=shutil.ignore_patterns(
                 "experiment*", "__pycache__", "*.pyc",
             ),
