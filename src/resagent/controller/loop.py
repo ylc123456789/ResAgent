@@ -26,12 +26,14 @@ class Controller(ControllerActions):
         codingagent: CodingAgentAdapter,
         reproagent: ReproAgentAdapter,
         confirm_callback: callable = None,
+        shared_workspace: str = "auto",
     ):
         self.planner = planner
         self.expagent = expagent
         self.codingagent = codingagent
         self.reproagent = reproagent
         self.confirm = confirm_callback or (lambda _: True)
+        self.shared_workspace = shared_workspace
 
     def step(self, state: ResearchState) -> Observation:
         """Execute one action, respecting persisted pause and retry state."""

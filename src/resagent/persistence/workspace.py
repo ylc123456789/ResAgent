@@ -45,6 +45,14 @@ class WorkspaceLayout:
     def artifacts_index(self) -> Path:
         return self.artifacts_dir / "index.json"
 
+    def project_workspace(self, project_ref: str = "") -> Path:
+        """Return the ResAgent-owned workspace for a logical project."""
+        safe = "".join(
+            char if char.isalnum() or char in "-_" else "_"
+            for char in project_ref.strip()
+        ).strip("_")
+        return self.run_dir / "project_ws" / (safe or "default")
+
     # -- per-module task directories --
 
     def expagent_decision_dir(self, n: int) -> Path:

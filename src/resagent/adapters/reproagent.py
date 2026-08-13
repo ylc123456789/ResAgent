@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -50,9 +49,6 @@ class ReproAgentAdapter:
         task_dir.mkdir(parents=True, exist_ok=True)
         # ReproAgent's actual workspace (nested inside task dir)
         repro_ws = layout.reproagent_workspace(task_n, attempt_number)
-        if not self.mock:
-            _seed_source_workspace(spec.get("source_workspace", ""), repro_ws / "repo")
-
         layout.write_task_manifest(task_dir, task_id=task.id,
                                    module="ReproAgent", attempt=attempt_number,
                                    input_summary=task.input.get("experiment_goal", ""))
@@ -61,6 +57,9 @@ class ReproAgentAdapter:
             raw = self._mock_execute(spec)
             outcome = "completed"
             repro_ws.mkdir(parents=True, exist_ok=True)
+            mock_repo = repro_ws / "repo"
+            mock_repo.mkdir(parents=True, exist_ok=True)
+            raw["repo_path"] = str(mock_repo)
             (repro_ws / "result.md").write_text(
                 f"# Mock Reproduction Result\n\n{raw['summary']}\n",
                 encoding="utf-8",
@@ -71,6 +70,15 @@ class ReproAgentAdapter:
                             summary=raw.get("summary", "")[:100],
                             parent={"module": "resagent", "run_id": layout.run_id,
                                     "task_id": task.id, "attempt": attempt_number})
+            _write_mock_bindings(
+                repro_ws / "session.yaml",
+                repo_path=str(mock_repo),
+                origin=spec.get("repo_url") or spec.get("copy_from")
+                or spec.get("external_repo_path") or "local",
+                mode=("shared" if spec.get("external_repo_path") else
+                      "copy" if spec.get("copy_from") else "isolated"),
+                env_name=f"repro_{layout.run_id}",
+            )
         else:
             raw, outcome = self._call_execute(
                 spec, repro_ws,
@@ -107,7 +115,11 @@ class ReproAgentAdapter:
             "artifact": artifact,
             "outcome": outcome,
             "raw": raw,
-            "workspace_path": str(repro_ws / "repo") if (repro_ws / "repo").is_dir() else "",
+            "workspace_path": raw.get("repo_path", "") or (
+                str(repro_ws / "repo") if (repro_ws / "repo").is_dir() else ""
+            ),
+            "session_manifest": str(card) if card.exists() else "",
+            "coding_issues": raw.get("coding_issues", []),
         }
 
     def _call_execute(self, spec: dict, out_dir: Path,
@@ -119,6 +131,10 @@ class ReproAgentAdapter:
         task = ReproTask(
             paper_url=spec.get("paper_url", ""),
             repo_url=spec.get("repo_url", ""),
+            copy_from=spec.get("copy_from", ""),
+            external_repo_path=spec.get("external_repo_path", ""),
+            setup_only=bool(spec.get("setup_only", False)),
+            allow_code_delegation=bool(spec.get("allow_code_delegation", False)),
             workspace_dir=out_dir,
             experiment_goal=spec.get("experiment_goal", ""),
             model=self.model,
@@ -159,6 +175,9 @@ class ReproAgentAdapter:
                 "summary": result_state.final_summary or f"Reproduction finished in {time.time() - start:.0f}s",
                 "steps": len(result_state.steps),
                 "duration_seconds": round(time.time() - start, 1),
+                "repo_path": str(result_state.repo_context.repo_path)
+                if result_state.repo_context else "",
+                "coding_issues": list(result_state.coding_issues),
             }
             return raw, outcome
         except Exception as e:
@@ -259,31 +278,24 @@ class ReproAgentAdapter:
         self._imported = True
 
 
-def _seed_source_workspace(source: str, destination: Path) -> None:
-    """Snapshot a dependency worktree into ReproAgent's isolated checkout.
+def _write_mock_bindings(
+    card_path: Path, *, repo_path: str, origin: str, mode: str, env_name: str,
+) -> None:
+    """Give deterministic mocks the same resource contract as real sessions."""
+    import yaml
 
-    Copying, rather than cloning, intentionally preserves CodingAgent's
-    uncommitted edits while keeping the source project untouched.
-    """
-    if not source:
-        return
-    source_path = Path(source).expanduser().resolve()
-    if not source_path.is_dir():
-        raise RuntimeError(f"dependent source workspace does not exist: {source_path}")
-    if destination.exists():
-        return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    ignored_names = {
-        ".mypy_cache", ".pytest_cache", ".ruff_cache", "__pycache__",
-        ".venv", "venv", "node_modules",
+    card = yaml.safe_load(card_path.read_text(encoding="utf-8")) or {}
+    card["bindings"] = {
+        "repo": {"path": repo_path, "origin": origin, "commit": "mock", "mode": mode},
+        "environment": {
+            "name": env_name,
+            "policy": "auto",
+            "certification": "experiment",
+            "certified_at": card.get("updated_at", ""),
+            "audit_artifact": "mock-audit",
+        },
     }
-
-    def ignore(_directory, names):
-        return [name for name in names if name in ignored_names]
-
-    try:
-        shutil.copytree(source_path, destination, symlinks=True, ignore=ignore)
-    except Exception:
-        if destination.exists():
-            shutil.rmtree(destination)
-        raise
+    card_path.write_text(
+        yaml.safe_dump(card, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )

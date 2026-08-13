@@ -40,6 +40,13 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
     if state.current_summary:
         parts.append(f"\n## Summary\n{state.current_summary}")
 
+    if state.resources:
+        parts.append("\n## Registered Resources\n" + "\n".join(
+            f"- {resource.kind}:{resource.id} path={resource.path or '-'} "
+            f"repo={resource.repo or '-'} certification={resource.certification or '-'}"
+            for resource in state.resources
+        ))
+
     # User directives (always kept, already capped at 3)
     if state.user_directives:
         lines = ["\n## User Directives (latest last)"]
@@ -112,6 +119,10 @@ def build_codingagent_context(task: AgentTask) -> dict:
         "verify_commands": _as_list(task.input.get("verify_commands", [])),
         "allowed_paths": _as_list(task.input.get("allowed_paths", [])),
         "output_dir": task.input.get("output_dir", ""),
+        "repo_url": task.input.get("repo_url", ""),
+        "branch": task.input.get("branch", ""),
+        "env_policy": task.input.get("env_policy", "auto"),
+        "env_name": task.input.get("env_name", ""),
     }
 
 
@@ -120,7 +131,11 @@ def build_reproagent_context(task: AgentTask) -> dict:
     return {
         "paper_url": task.input.get("paper_url", ""),
         "repo_url": task.input.get("repo_url", ""),
-        "source_workspace": task.input.get("source_workspace", ""),
+        "copy_from": task.input.get("copy_from", ""),
+        "external_repo_path": task.input.get("external_repo_path", ""),
+        "setup_only": bool(task.input.get("setup_only", False)),
+        "allow_code_delegation": bool(task.input.get("allow_code_delegation", False)),
+        "env_name": task.input.get("env_name", ""),
         "experiment_goal": task.input.get("experiment_goal", ""),
         "workspace_dir": task.input.get("workspace_dir", ""),
         "api_base": task.input.get("api_base", ""),

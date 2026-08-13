@@ -21,6 +21,7 @@ policy:
   max_task_retries: 2
   confirm_before_external_runs: true
   confirm_before_long_tasks: true
+  shared_workspace: auto  # auto | always | never
   repro_mirror_profile: none  # none | cn | autodl
   # Pre-downloaded dataset cache for reproduction tasks (TORCH_HOME/HF_HOME etc.
   # are pointed here inside repro runs). Resolution: this value < $REPROAGENT_DATASET_CACHE.

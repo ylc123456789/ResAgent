@@ -1,0 +1,25 @@
+schema_version: 1
+session_id: operator-example-001
+module: reproagent
+kind: task_session
+status: completed
+summary: Bounded experiment completed with evidence.
+project_path: /contract/session/operator-example-001
+bindings:
+  repo:
+    path: /contract/projects/example_repo
+    origin: https://example.invalid/research/example-repo.git
+    commit: abc1234
+    mode: shared
+  environment:
+    name: resenv_contract_example
+    policy: reuse_only
+    certification: experiment
+    certified_at: "2026-01-01T00:00:00Z"
+    audit_artifact: logs/environment_audit.stdout
+  dataset_cache: /contract/cache/datasets
+  pip_cache: /contract/cache/pip
+key_artifacts:
+  - type: experiment_result
+    path: result.md
+    summary: Metrics are linked to command logs.

@@ -1,0 +1,52 @@
+{
+  "decision_id": "decision_contract_001",
+  "recommended_actions": [
+    {
+      "action_id": "prepare_example",
+      "type": "repro_task",
+      "depends_on": [],
+      "project_ref": "example_repo",
+      "workspace_intent": "shared",
+      "plan": {
+        "kind": "repro_task",
+        "repo_url": "https://example.invalid/research/example-repo.git",
+        "setup_only": true,
+        "experiment_goal": "Prepare and audit the bounded experiment environment."
+      }
+    },
+    {
+      "action_id": "patch_example",
+      "type": "coding_task",
+      "depends_on": ["prepare_example"],
+      "project_ref": "example_repo",
+      "workspace_intent": "shared",
+      "plan": {
+        "kind": "coding_task",
+        "task_goal": "Add bounded metric logging without changing model semantics."
+      }
+    },
+    {
+      "action_id": "run_example",
+      "type": "run_task",
+      "depends_on": ["patch_example"],
+      "project_ref": "example_repo",
+      "workspace_intent": "shared",
+      "plan": {
+        "kind": "run_task",
+        "command_goal": "Run the bounded GPU experiment and report evidenced metrics.",
+        "requires_gpu": true
+      }
+    },
+    {
+      "action_id": "analyze_example",
+      "type": "result_analysis",
+      "depends_on": ["run_example"],
+      "project_ref": "example_repo",
+      "workspace_intent": "",
+      "plan": {
+        "kind": "result_analysis",
+        "task_goal": "Assess whether the evidenced result supports the hypothesis."
+      }
+    }
+  ]
+}

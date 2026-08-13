@@ -110,6 +110,20 @@ class Artifact(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResourceRef(BaseModel):
+    """A physical resource registered by an executor within this run."""
+
+    kind: str
+    id: str
+    path: str = ""
+    origin: str = ""
+    repo: str = ""
+    certification: str = ""
+    created_by: Producer
+    created_task: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class Attempt(BaseModel):
     """Record of one execution attempt of a task."""
     attempt_number: int
@@ -187,6 +201,7 @@ class ResearchState(BaseModel):
     run: ResearchRun
     current_summary: str = ""
     artifacts: list[Artifact] = Field(default_factory=list)
+    resources: list[ResourceRef] = Field(default_factory=list)
     tasks: list[AgentTask] = Field(default_factory=list)
     decisions: list[DecisionRecord] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)

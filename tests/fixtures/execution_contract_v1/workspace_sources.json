@@ -1,0 +1,14 @@
+{
+  "valid_new_tasks": [
+    {"repo_url": "https://example.invalid/org/repo.git", "copy_from": "", "external_repo_path": ""},
+    {"repo_url": "", "copy_from": "/contract/source/repo", "external_repo_path": ""},
+    {"repo_url": "", "copy_from": "", "external_repo_path": "/contract/shared/repo"}
+  ],
+  "invalid_new_tasks": [
+    {"repo_url": "", "copy_from": "", "external_repo_path": ""},
+    {"repo_url": "https://example.invalid/org/repo.git", "copy_from": "/contract/source/repo", "external_repo_path": ""},
+    {"repo_url": "https://example.invalid/org/repo.git", "copy_from": "", "external_repo_path": "/contract/shared/repo"},
+    {"repo_url": "", "copy_from": "/contract/source/repo", "external_repo_path": "/contract/shared/repo"}
+  ],
+  "valid_resume": {"repo_url": "", "copy_from": "", "external_repo_path": "", "existing_workspace_repo": true}
+}

@@ -12,6 +12,12 @@ from .planner import PlannedAction
 from ..policies.retry import RetryPolicy, classify_transient
 from .contracts import dependencies_satisfied, validate_finish
 from ..persistence.workspace import WorkspaceLayout
+from ..resources import (
+    materialize_task_bindings,
+    register_task_resources,
+    resume_repaired_tasks,
+    schedule_coding_repair,
+)
 
 
 class ControllerActions:
@@ -92,6 +98,7 @@ class ControllerActions:
         task = self._require_task(state, planned, Producer.CodingAgent)
         if isinstance(task, Observation):
             return task  # error observation from _require_task
+        materialize_task_bindings(state, task, layout, self.shared_workspace)
 
         task.status = TaskStatus.running
         attempt_num = len(task.attempts) + 1
@@ -115,6 +122,13 @@ class ControllerActions:
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
+            register_task_resources(
+                state, task,
+                result.get("session_manifest", ""),
+                result.get("workspace_path", ""),
+            )
+            if task.status == TaskStatus.completed:
+                resume_repaired_tasks(state, task)
 
             return Observation(
                 action=ActionName.call_coding_agent,
@@ -140,6 +154,7 @@ class ControllerActions:
         task = self._require_task(state, planned, Producer.ReproAgent)
         if isinstance(task, Observation):
             return task
+        materialize_task_bindings(state, task, layout, self.shared_workspace)
 
         task.status = TaskStatus.running
         attempt_num = len(task.attempts) + 1
@@ -176,13 +191,24 @@ class ControllerActions:
             materialized_workspace = result.get("workspace_path", "")
             if task.status == TaskStatus.completed and materialized_workspace:
                 task.input["workspace_path"] = materialized_workspace
+            register_task_resources(
+                state, task,
+                result.get("session_manifest", ""),
+                materialized_workspace,
+            )
+            spawned = None
+            if task.status == TaskStatus.blocked:
+                spawned = schedule_coding_repair(
+                    state, task, result.get("coding_issues", []),
+                    materialized_workspace,
+                )
 
             return Observation(
                 action=ActionName.call_repro_agent,
                 result=obs_result,
                 detail=result["raw"].get("summary", ""),
                 artifact_ids=[result["artifact"].id],
-                task_ids=[task.id],
+                task_ids=[task.id] + ([spawned.id] if spawned else []),
             )
         except Exception as e:
             task.status = TaskStatus.failed

@@ -75,6 +75,7 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
 
     return Controller(
         planner=planner,
+        shared_workspace=config.policy.shared_workspace,
         expagent=ExpAgentAdapter(
             module_path=expagent_path,
             model=config.llm.model,

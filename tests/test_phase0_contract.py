@@ -49,7 +49,7 @@ def test_prompt_contracts() -> None:
 
 def test_persisted_model_field_contracts() -> None:
     assert list(ResearchState.model_fields) == [
-        "run", "current_summary", "artifacts", "tasks", "decisions",
+        "run", "current_summary", "artifacts", "resources", "tasks", "decisions",
         "observations", "budget", "user_directives", "pending_question",
         "answered_questions",
     ]

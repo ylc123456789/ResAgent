@@ -1,0 +1,11 @@
+schema_version: 1
+session_id: legacy-example-001
+module: codingagent
+kind: task_session
+status: completed
+summary: Legacy card without resource bindings.
+project_path: /contract/projects/legacy_repo
+key_artifacts:
+  - type: report
+    path: patch_report.md
+    summary: Existing readers must continue to accept this card.

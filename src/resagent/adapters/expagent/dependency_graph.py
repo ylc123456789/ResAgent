@@ -11,6 +11,8 @@ def dependency_graph_issues(actions: list[dict]) -> list[str]:
         for action in actions
         if str(action.get("action_id", "")).strip()
     ]
+    if len(identifiers) != len(actions):
+        issues.append("every recommended action must have a non-empty action_id")
     if len(identifiers) != len(set(identifiers)):
         issues.append("recommended actions contain duplicate action_id values")
 

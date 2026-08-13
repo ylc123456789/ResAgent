@@ -6,7 +6,7 @@ import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
-from resagent.adapters.reproagent import ReproAgentAdapter, _seed_source_workspace
+from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.controller import Controller
 from resagent.models import (
     ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Producer,
@@ -215,8 +215,7 @@ def test_same_decision_dependency_chain_routes_and_orders_tasks(tmp_path):
     assert {"action": "call_repro_agent", "task_id": tasks[1].id} in allowed_action_candidates(state)
 
 
-def test_dependent_action_does_not_need_its_own_action_id(tmp_path):
-    """An action needs an ID only when another action references it."""
+def test_every_action_requires_its_own_action_id(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     state = init_state("optional-dependent-id", str(tmp_path), "goal")
@@ -238,10 +237,9 @@ def test_dependent_action_does_not_need_its_own_action_id(tmp_path):
         },
     ], "decision", 1)
 
-    assert adapter._normalization_issues == []
-    assert len(tasks) == 2
-    assert tasks[1].action_id == ""
-    assert tasks[1].depends_on == [tasks[0].id]
+    assert tasks == []
+    assert any("non-empty action_id" in issue
+               for issue in adapter._normalization_issues)
 
 
 def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
@@ -264,7 +262,7 @@ def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
                      "task_goal": "change code"},
         },
         {
-            "type": "run_task", "depends_on": ["patch"],
+            "type": "run_task", "action_id": "run", "depends_on": ["patch"],
             "project_ref": "fixture", "rationale": "verify",
             "plan": {"kind": "run_task", "workspace_path": "",
                      "command_goal": "run once"},
@@ -305,18 +303,6 @@ def test_direct_dispatch_cannot_bypass_dependencies(tmp_path):
     observation = ctrl.step(state)
     assert observation.result == "error"
     assert "waiting for dependencies" in observation.detail
-
-
-def test_source_workspace_snapshot_preserves_uncommitted_edits(tmp_path):
-    source = tmp_path / "source"
-    destination = tmp_path / "run" / "repo"
-    source.mkdir()
-    (source / "train.py").write_text("patched = True\n", encoding="utf-8")
-    (source / "__pycache__").mkdir()
-    (source / "__pycache__" / "ignored.pyc").write_bytes(b"cache")
-    _seed_source_workspace(str(source), destination)
-    assert (destination / "train.py").read_text(encoding="utf-8") == "patched = True\n"
-    assert not (destination / "__pycache__").exists()
 
 
 def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):

@@ -90,7 +90,13 @@ class CodingAgentAdapter:
         outcome = raw.get("status", "completed")
         if outcome not in {"completed", "completed_with_warnings", "blocked", "needs_user_input", "failed"}:
             outcome = "completed" if raw.get("verification_passed", True) else "failed"
-        return {"artifact": artifact, "raw": raw, "outcome": outcome}
+        return {
+            "artifact": artifact,
+            "raw": raw,
+            "outcome": outcome,
+            "workspace_path": spec.get("workspace_path", ""),
+            "session_manifest": str(card) if card.exists() else "",
+        }
 
     # ── ad-hoc read-only QA (conversation layer, no ResearchRun) ───────────
 
@@ -190,6 +196,10 @@ class CodingAgentAdapter:
 
         task_spec = CodeTaskSpec(
             workspace_path=Path(spec.get("workspace_path", "") or "."),
+            repo_url=spec.get("repo_url", ""),
+            branch=spec.get("branch", ""),
+            env_policy=spec.get("env_policy", "auto"),
+            env_name=spec.get("env_name", ""),
             task_goal=spec.get("task_goal", ""),
             constraints=spec.get("constraints", []),
             verify_commands=spec.get("verify_commands", []),
