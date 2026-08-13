@@ -48,6 +48,11 @@ def materialize_task_bindings(
         for key in ("repo_url", "copy_from", "external_repo_path"):
             task.input[key] = ""
         task.input["external_repo_path" if share else "copy_from"] = dependency_repo.path
+    elif task.input.get("workspace_path") and not any(task.input.get(key) for key in (
+            "repo_url", "copy_from", "external_repo_path")):
+        task.input["external_repo_path" if share else "copy_from"] = (
+            task.input["workspace_path"]
+        )
     elif repo and not any(task.input.get(key) for key in (
             "repo_url", "copy_from", "external_repo_path")):
         task.input["external_repo_path" if share else "copy_from"] = repo.path

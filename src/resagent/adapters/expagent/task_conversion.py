@@ -119,16 +119,19 @@ def _upgrade_legacy_action_ids(actions: list[dict]) -> list[dict]:
 
 
 def _inherit_goal_repository(actions: list[dict], state) -> list[dict]:
-    """Recover one unambiguous repository URL from the user's goal.
+    """Recover one unambiguous repository source from the user's goal.
 
     ExpAgent may omit a locator from a logical action graph even though the
     user supplied it in the research goal. Attach it to the first code-owning
     action in each source-less project so normal setup injection can provision
-    the workspace. Ambiguous or absent repository URLs remain fail-closed.
+    the workspace. Ambiguous or absent sources remain fail-closed.
     """
-    repo_urls = _repository_urls(str(state.run.research_goal if state else ""))
-    if len(repo_urls) != 1:
+    goal = str(state.run.research_goal if state else "")
+    sources = [("repo_url", value) for value in _repository_urls(goal)]
+    sources.extend(("workspace_path", value) for value in _repository_paths(goal))
+    if len(sources) != 1:
         return [dict(action) for action in actions]
+    source_key, source_value = sources[0]
 
     result = [dict(action) for action in actions]
     projects_with_source = {
@@ -146,7 +149,7 @@ def _inherit_goal_repository(actions: list[dict], state) -> list[dict]:
             continue
         plan = dict(action.get("plan") or {})
         if not _has_repository_source(plan):
-            plan["repo_url"] = repo_urls[0]
+            plan[source_key] = source_value
             action["plan"] = plan
         assigned_projects.add(project_key)
     return result
@@ -161,6 +164,18 @@ def _repository_urls(text: str) -> list[str]:
         if (url.endswith(".git") or any(host in url.lower() for host in hosts)) and url not in urls:
             urls.append(url)
     return urls
+
+
+def _repository_paths(text: str) -> list[str]:
+    paths: list[str] = []
+    for candidate in re.findall(r"(?<!\w)(/[^\s,;]+)", text):
+        path = candidate.rstrip(".,;:'\"")
+        if "://" in path:
+            continue
+        resolved = os.path.abspath(os.path.expanduser(path))
+        if os.path.isdir(os.path.join(resolved, ".git")) and resolved not in paths:
+            paths.append(resolved)
+    return paths
 
 
 def _has_repository_source(plan: dict) -> bool:

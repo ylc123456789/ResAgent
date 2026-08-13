@@ -161,6 +161,38 @@ def test_goal_repository_provisions_source_less_patch_run_graph(tmp_path):
     assert experiment.depends_on == [coding.id]
 
 
+def test_goal_local_repo_routes_serial_run_tasks(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    state = init_state(
+        "local-runs", str(tmp_path), f"Using local repository {repo}, run twice",
+    )
+    tasks, issues = actions_to_tasks([
+        {
+            "type": "run_task", "action_id": "first",
+            "project_ref": "project", "plan": {"kind": "run_task"},
+        },
+        {
+            "type": "run_task", "action_id": "second",
+            "depends_on": ["first"], "project_ref": "project",
+            "workspace_intent": "shared", "plan": {"kind": "run_task"},
+        },
+    ], state, "decision", 1)
+
+    assert issues == []
+    assert len(tasks) == 2
+    assert tasks[0].input["workspace_path"] == str(repo)
+    assert tasks[1].depends_on == [tasks[0].id]
+
+    state.tasks.extend(tasks)
+    materialize_task_bindings(
+        state, tasks[0], WorkspaceLayout(str(tmp_path), "local-runs"),
+    )
+    assert tasks[0].input["external_repo_path"] == str(repo)
+    assert not tasks[0].input["repo_url"]
+
+
 def test_ambiguous_goal_repositories_do_not_guess_run_source(tmp_path):
     state = init_state(
         "ambiguous", str(tmp_path),
