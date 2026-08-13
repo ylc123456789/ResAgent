@@ -130,6 +130,49 @@ def test_remote_patch_run_graph_injects_setup_operator(tmp_path):
     assert experiment.depends_on == [coding.id]
 
 
+def test_goal_repository_provisions_source_less_patch_run_graph(tmp_path):
+    state = init_state(
+        "goal-repo", str(tmp_path),
+        "Use https://arxiv.org/abs/1 with https://github.com/org/project.git",
+    )
+    tasks, issues = actions_to_tasks([
+        {
+            "priority": "high", "type": "coding_task", "action_id": "patch",
+            "depends_on": [], "project_ref": "project",
+            "workspace_intent": "shared", "rationale": "instrument",
+            "plan": {"kind": "coding_task", "task_goal": "add metrics"},
+        },
+        {
+            "priority": "high", "type": "run_task", "action_id": "run",
+            "depends_on": ["patch"], "project_ref": "project",
+            "workspace_intent": "shared", "rationale": "measure",
+            "plan": {"kind": "run_task", "command_goal": "run 3 epochs"},
+        },
+    ], state, "decision", 1)
+
+    assert issues == []
+    assert [task.agent for task in tasks] == [
+        Producer.ReproAgent, Producer.CodingAgent, Producer.ReproAgent,
+    ]
+    setup, coding, experiment = tasks
+    assert setup.input["repo_url"] == "https://github.com/org/project.git"
+    assert setup.input["setup_only"] is True
+    assert coding.depends_on == [setup.id]
+    assert experiment.depends_on == [coding.id]
+
+
+def test_ambiguous_goal_repositories_do_not_guess_run_source(tmp_path):
+    state = init_state(
+        "ambiguous", str(tmp_path),
+        "Compare https://github.com/a/one.git and https://github.com/b/two.git",
+    )
+    tasks, issues = actions_to_tasks([
+        {"type": "run_task", "action_id": "run", "plan": {"kind": "run_task"}},
+    ], state, "decision", 1)
+    assert tasks == []
+    assert any("no repository" in issue for issue in issues)
+
+
 def test_setup_patch_experiment_chain_reuses_registered_resources(tmp_path):
     state = init_state("e2e", str(tmp_path), "patch and run")
     tasks, issues = actions_to_tasks([

@@ -18,7 +18,9 @@ def actions_to_tasks(
     actions: list[dict], state, source: str, next_num: int,
 ) -> tuple[list[AgentTask], list[str]]:
     """Convert one validated ExpAgent action graph into ResAgent tasks."""
-    actions = _inject_setup_actions(_upgrade_legacy_action_ids(actions))
+    actions = _upgrade_legacy_action_ids(actions)
+    actions = _inherit_goal_repository(actions, state)
+    actions = _inject_setup_actions(actions)
     issues = dependency_graph_issues(actions)
     if issues:
         return [], issues
@@ -114,6 +116,55 @@ def _upgrade_legacy_action_ids(actions: list[dict]) -> list[dict]:
         item["action_id"] = f"legacy_{index:03d}"
         upgraded.append(item)
     return upgraded
+
+
+def _inherit_goal_repository(actions: list[dict], state) -> list[dict]:
+    """Recover one unambiguous repository URL from the user's goal.
+
+    ExpAgent may omit a locator from a logical action graph even though the
+    user supplied it in the research goal. Attach it to the first code-owning
+    action in each source-less project so normal setup injection can provision
+    the workspace. Ambiguous or absent repository URLs remain fail-closed.
+    """
+    repo_urls = _repository_urls(str(state.run.research_goal if state else ""))
+    if len(repo_urls) != 1:
+        return [dict(action) for action in actions]
+
+    result = [dict(action) for action in actions]
+    projects_with_source = {
+        str(action.get("project_ref", "")).strip()
+        for action in result
+        if _has_repository_source(dict(action.get("plan") or {}))
+    }
+    assigned_projects: set[str] = set()
+    for action in result:
+        if action.get("type") not in {"coding_task", "repro_task", "run_task"}:
+            continue
+        project_ref = str(action.get("project_ref", "")).strip()
+        project_key = project_ref or "__default__"
+        if project_ref in projects_with_source or project_key in assigned_projects:
+            continue
+        plan = dict(action.get("plan") or {})
+        if not _has_repository_source(plan):
+            plan["repo_url"] = repo_urls[0]
+            action["plan"] = plan
+        assigned_projects.add(project_key)
+    return result
+
+
+def _repository_urls(text: str) -> list[str]:
+    candidates = re.findall(r"https?://[^\s<>()\[\]{}]+", text)
+    hosts = ("github.com", "gitlab.com", "bitbucket.org", "gitee.com")
+    urls: list[str] = []
+    for candidate in candidates:
+        url = candidate.rstrip(".,;:'\"")
+        if (url.endswith(".git") or any(host in url.lower() for host in hosts)) and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _has_repository_source(plan: dict) -> bool:
+    return any(plan.get(key) for key in ("repo_url", "workspace_path", "repo_path"))
 
 
 def _inject_setup_actions(actions: list[dict]) -> list[dict]:
