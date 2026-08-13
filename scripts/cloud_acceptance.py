@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -131,11 +132,26 @@ def case_coding(config, workspace: Path) -> dict:
             "completed_coding_tasks": len(completed)}
 
 
-def case_repro(config, workspace: Path) -> dict:
+def case_repro(
+    config, workspace: Path, local_repo: Path | None = None,
+) -> dict:
+    if local_repo is not None:
+        source = workspace / "fixtures" / f"torchdiffeq-local-{int(time.time())}"
+        shutil.copytree(
+            local_repo, source,
+            ignore=shutil.ignore_patterns(
+                ".data", "experiment*", "__pycache__", "*.pyc",
+            ),
+        )
+        repository_clause = f"the local repository {source}"
+    else:
+        source = None
+        repository_clause = "https://github.com/rtqichen/torchdiffeq.git"
     state = init_run(
-        "Reproduce the Neural ODE MNIST experiment from "
-        "https://arxiv.org/abs/1806.07366 using "
-        "https://github.com/rtqichen/torchdiffeq.git. Run exactly 3 epochs "
+        "Using " + repository_clause +
+        ", reproduce the Neural ODE MNIST experiment from "
+        "https://arxiv.org/abs/1806.07366"
+        ". Run exactly 3 epochs "
         "on GPU and report final/best accuracy, runtime, and deviations. "
         "This is a bounded integration test, not a full paper reproduction.",
         workspace_root=str(workspace / "runs"), config=config,
@@ -153,7 +169,8 @@ def case_repro(config, workspace: Path) -> dict:
     _assert_artifacts_exist(state)
     _assert_parent_links(state, {"expagent", "reproagent"})
     return {"run_id": state.run.run_id, "steps": len(observations),
-            "completed_repro_tasks": len(completed)}
+            "completed_repro_tasks": len(completed),
+            "local_source": str(source) if source else ""}
 
 
 def case_env_reuse(config, workspace: Path) -> dict:
@@ -282,6 +299,10 @@ def main() -> int:
     )
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--case", choices=["all", *CASES], default="all")
+    parser.add_argument(
+        "--repro-local-repo", default="",
+        help="Use a local repository snapshot for the repro case instead of GitHub",
+    )
     args = parser.parse_args()
     config = load_config(args.config)
     workspace = Path(args.workspace).expanduser().resolve()
@@ -291,7 +312,15 @@ def main() -> int:
     try:
         for name in selected:
             started = time.monotonic()
-            result = CASES[name](config, workspace)
+            if name == "repro" and args.repro_local_repo:
+                local_repo = Path(args.repro_local_repo).expanduser().resolve()
+                if not (local_repo / ".git").is_dir():
+                    raise ValueError(
+                        f"--repro-local-repo is not a Git worktree: {local_repo}"
+                    )
+                result = case_repro(config, workspace, local_repo)
+            else:
+                result = CASES[name](config, workspace)
             result["duration_seconds"] = round(time.monotonic() - started, 2)
             report["cases"][name] = result
     except Exception as exc:
