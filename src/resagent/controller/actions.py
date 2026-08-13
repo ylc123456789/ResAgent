@@ -173,6 +173,10 @@ class ControllerActions:
                 self._schedule_retry(state, task, str(result["raw"].get("summary", "ReproAgent failed")))
                 obs_result = "error"
 
+            materialized_workspace = result.get("workspace_path", "")
+            if task.status == TaskStatus.completed and materialized_workspace:
+                task.input["workspace_path"] = materialized_workspace
+
             return Observation(
                 action=ActionName.call_repro_agent,
                 result=obs_result,

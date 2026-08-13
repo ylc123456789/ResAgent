@@ -107,6 +107,7 @@ class ReproAgentAdapter:
             "artifact": artifact,
             "outcome": outcome,
             "raw": raw,
+            "workspace_path": str(repro_ws / "repo") if (repro_ws / "repo").is_dir() else "",
         }
 
     def _call_execute(self, spec: dict, out_dir: Path,

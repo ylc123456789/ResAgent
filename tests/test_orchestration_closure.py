@@ -317,3 +317,56 @@ def test_source_workspace_snapshot_preserves_uncommitted_edits(tmp_path):
     _seed_source_workspace(str(source), destination)
     assert (destination / "train.py").read_text(encoding="utf-8") == "patched = True\n"
     assert not (destination / "__pycache__").exists()
+
+
+def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):
+    repo = tmp_path / "runs" / "workspace-owner" / "tasks" / "reproagent" / "repo"
+    repo.mkdir(parents=True)
+
+    class MaterializingReproAgent:
+        def execute(self, task, layout, attempt_number=1):
+            artifact_path = tmp_path / "result.md"
+            artifact_path.write_text("ok", encoding="utf-8")
+            return {
+                "artifact": Artifact(
+                    id="repro_result_1",
+                    type=ArtifactType.repro_result,
+                    producer=Producer.ReproAgent,
+                    path=str(artifact_path),
+                    summary="ok",
+                ),
+                "outcome": "completed",
+                "raw": {"summary": "ok"},
+                "workspace_path": str(repo),
+            }
+
+    state = init_state("workspace-owner", str(tmp_path), "reproduce then patch")
+    repro_task = AgentTask(
+        id="task_001",
+        agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task,
+        input={"repo_url": "https://example.invalid/repo.git"},
+    )
+    state.tasks.append(repro_task)
+    controller = Controller(
+        planner=ScriptedPlanner([
+            PlannedAction(ActionName.call_repro_agent, {"task_id": repro_task.id}),
+        ]),
+        expagent=ExpAgentAdapter(mock=True),
+        codingagent=CodingAgentAdapter(mock=True),
+        reproagent=MaterializingReproAgent(),
+    )
+
+    observation = controller.step(state)
+    assert observation.result == "ok"
+    assert repro_task.input["workspace_path"] == str(repo)
+
+    adapter = ExpAgentAdapter(mock=True)
+    adapter._state = state
+    followup = adapter._actions_to_tasks([{
+        "type": "coding_task",
+        "rationale": "instrument the reproduced code",
+        "plan": {"kind": "coding_task", "task_goal": "add metrics"},
+    }], "decision_002", state.next_task_number())
+    assert len(followup) == 1
+    assert followup[0].input["workspace_path"] == str(repo)
