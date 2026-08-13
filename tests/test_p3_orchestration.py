@@ -73,6 +73,33 @@ def test_logical_chain_resolves_same_repo_and_environment(tmp_path):
     assert experiment.input["allow_code_delegation"] is False
 
 
+def test_dependency_repo_supersedes_stale_initial_locator(tmp_path):
+    state = init_state("snapshot", str(tmp_path), "patch then run")
+    patched_repo = tmp_path / "patched"
+    state.resources.append(ResourceRef(
+        kind="repo", id="project", path=str(patched_repo),
+        created_by=Producer.CodingAgent, created_task="task_001",
+    ))
+    experiment = AgentTask(
+        id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, project_ref="project",
+        depends_on=["task_001"],
+        input={
+            "repo_url": "/original/repo",
+            "workspace_intent": "isolated",
+            "experiment_goal": "verify patch",
+        },
+    )
+
+    materialize_task_bindings(
+        state, experiment, WorkspaceLayout(str(tmp_path), "snapshot"),
+    )
+
+    assert experiment.input["repo_url"] == ""
+    assert experiment.input["copy_from"] == str(patched_repo)
+    assert experiment.input.get("external_repo_path", "") == ""
+
+
 def test_remote_patch_run_graph_injects_setup_operator(tmp_path):
     state = init_state("graph", str(tmp_path), "patch and run")
     tasks, issues = actions_to_tasks([

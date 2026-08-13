@@ -18,6 +18,7 @@ def materialize_task_bindings(
         raise ValueError(f"invalid shared_workspace policy: {shared_workspace}")
 
     repo = _repo_for_task(state, task)
+    dependency_repo = _repo_from_direct_dependencies(state, task)
     environment = _environment_for_task(state, task, repo)
     intent = str(task.input.get("workspace_intent", "")).strip()
     share = shared_workspace == "always" or (
@@ -40,9 +41,15 @@ def materialize_task_bindings(
 
     if task.agent != Producer.ReproAgent:
         return
-    if repo and not any(task.input.get(key) for key in (
-        "repo_url", "copy_from", "external_repo_path",
-    )):
+    if dependency_repo:
+        # A completed dependency is the current project state. Initial
+        # locators describe where the chain started and must not make a
+        # downstream experiment clone stale source code again.
+        for key in ("repo_url", "copy_from", "external_repo_path"):
+            task.input[key] = ""
+        task.input["external_repo_path" if share else "copy_from"] = dependency_repo.path
+    elif repo and not any(task.input.get(key) for key in (
+            "repo_url", "copy_from", "external_repo_path")):
         task.input["external_repo_path" if share else "copy_from"] = repo.path
     task.input["allow_code_delegation"] = False
     if environment:
@@ -185,6 +192,15 @@ def _repo_for_task(state: ResearchState, task: AgentTask) -> ResourceRef | None:
         if found:
             return found
     return None
+
+
+def _repo_from_direct_dependencies(
+    state: ResearchState, task: AgentTask,
+) -> ResourceRef | None:
+    dependency_ids = set(task.depends_on)
+    return next((resource for resource in reversed(state.resources)
+                 if resource.kind == "repo"
+                 and resource.created_task in dependency_ids), None)
 
 
 def _environment_for_task(

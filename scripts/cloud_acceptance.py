@@ -238,6 +238,7 @@ def case_dependency_chain(config, workspace: Path) -> dict:
         kind=AgentKind.repro_task, capability="run_experiment", required=True,
         action_id="verify_value", depends_on=[coding.id], project_ref="fixture",
         input={
+            "workspace_intent": "isolated",
             "repo_url": str(repo),
             "source_workspace": str(repo),
             "experiment_goal": (
