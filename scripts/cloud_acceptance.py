@@ -140,7 +140,7 @@ def case_repro(
         shutil.copytree(
             local_repo, source,
             ignore=shutil.ignore_patterns(
-                ".data", "experiment*", "__pycache__", "*.pyc",
+                "experiment*", "__pycache__", "*.pyc",
             ),
         )
         repository_clause = f"the local repository {source}"
