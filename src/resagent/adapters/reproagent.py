@@ -16,6 +16,17 @@ from ..context import build_reproagent_context
 from ..workspace_layout import WorkspaceLayout
 
 
+def _collect_coding_issues(result_state) -> list[str]:
+    """Collect structured patch issues from ReproAgent observations."""
+    issues: list[str] = []
+    for observation in getattr(result_state, "steps", []):
+        for issue in getattr(observation, "coding_issues", []) or []:
+            issue = str(issue).strip()
+            if issue and issue not in issues:
+                issues.append(issue)
+    return issues
+
+
 class ReproAgentAdapter:
     """Calls ReproAgent to reproduce paper results via its Python API."""
 
@@ -177,7 +188,7 @@ class ReproAgentAdapter:
                 "duration_seconds": round(time.time() - start, 1),
                 "repo_path": str(result_state.repo_context.repo_path)
                 if result_state.repo_context else "",
-                "coding_issues": list(result_state.coding_issues),
+                "coding_issues": _collect_coding_issues(result_state),
             }
             return raw, outcome
         except Exception as e:

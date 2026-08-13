@@ -129,3 +129,37 @@ class TestReproAgentAdapter:
         )
         from reproagent import models
         assert models.LAST_KW["dataset_cache_dir"] == "/task/override"
+
+    def test_blocked_state_collects_coding_issues_from_observations(
+        self, tmp_path, monkeypatch,
+    ):
+        """Blocked issues live on AgentObservation, not AgentState."""
+        pkg = tmp_path / "blocked_repro" / "reproagent"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "models.py").write_text(
+            "class ReproTask:\n"
+            "    def __init__(self, **kw): self.kw = kw\n"
+        )
+        (pkg / "controller.py").write_text(
+            "class Observation:\n"
+            "    coding_issues = ['missing metric', 'missing metric', 'bad CLI']\n"
+            "def run_controller(task):\n"
+            "    class State:\n"
+            "        status = 'blocked'\n"
+            "        final_summary = 'patch required'\n"
+            "        steps = [Observation()]\n"
+            "        repo_context = None\n"
+            "    return State()\n"
+        )
+        for mod in ("reproagent.controller", "reproagent.models", "reproagent"):
+            monkeypatch.delitem(sys.modules, mod, raising=False)
+
+        adapter = ReproAgentAdapter(module_path=str(tmp_path / "blocked_repro"))
+        raw, outcome = adapter._call_execute(
+            {"paper_url": "p", "repo_url": "r"}, tmp_path / "out",
+        )
+
+        assert outcome == "blocked"
+        assert raw["status"] == "blocked"
+        assert raw["coding_issues"] == ["missing metric", "bad CLI"]
