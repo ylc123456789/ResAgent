@@ -146,6 +146,8 @@ class ReproAgentAdapter:
             external_repo_path=spec.get("external_repo_path", ""),
             setup_only=bool(spec.get("setup_only", False)),
             allow_code_delegation=bool(spec.get("allow_code_delegation", False)),
+            env_name=spec.get("env_name", ""),
+            input_artifacts=spec.get("input_artifacts", []),
             workspace_dir=out_dir,
             experiment_goal=spec.get("experiment_goal", ""),
             model=self.model,

@@ -1,5 +1,9 @@
 # ExpAgent P4 Contract Follow-up
 
+> Status (2026-08-14): implemented and locally accepted in ExpAgent commit
+> `0a2afe3`. ExpAgent tests: `75 passed, 22 deselected`. Final acceptance is
+> the ResAgent cloud `fan-in-analysis` case.
+
 ## Scope
 
 This document describes remaining ExpAgent-owned contract work found while

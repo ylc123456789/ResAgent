@@ -101,6 +101,33 @@ class TestAdapterContext:
         )
         assert build_reproagent_context(task2)["dataset_cache_dir"] == ""
 
+    def test_reproagent_context_exposes_structured_dependency_artifacts(self):
+        task = AgentTask(
+            id="t3", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+            input={
+                "experiment_goal": "compare prior measurements",
+                "env_name": "certified-env",
+                "input_artifacts": [{
+                    "path": "/runs/baseline.json",
+                    "summary": "baseline accuracy 0.91",
+                    "producer_task_id": "task_001",
+                    "artifact_id": "baseline_result",
+                }],
+            },
+        )
+
+        ctx = build_reproagent_context(task)
+
+        assert ctx["env_name"] == "certified-env"
+        assert ctx["input_artifacts"] == [{
+            "path": "/runs/baseline.json",
+            "description": (
+                "baseline accuracy 0.91; producer task task_001; "
+                "artifact baseline_result"
+            ),
+        }]
+        assert "/runs/baseline.json" in ctx["experiment_goal"]
+
 
 def test_budget_enforcement_trims_low_priority_sections(tmp_path):
     """When context exceeds budget, lower-priority sections are trimmed."""

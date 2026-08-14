@@ -50,6 +50,24 @@ def test_ambiguous_run_task_fails_closed(tmp_path):
         raise AssertionError("ambiguous run_task must not be guessed")
 
 
+def test_result_analysis_routes_to_expagent(tmp_path):
+    state = _state(tmp_path)
+    action = {
+        "type": "result_analysis",
+        "plan": {
+            "kind": "result_analysis",
+            "task_goal": "compare baseline and proposed accuracy",
+        },
+    }
+
+    executor, kind, capability, plan = normalize_recommended_action(action, state)
+
+    assert executor == Producer.ExpAgent
+    assert kind == AgentKind.advise
+    assert capability == "analyze_result"
+    assert plan["task_goal"] == "compare baseline and proposed accuracy"
+
+
 def test_task_fingerprint_ignores_description_but_not_goal():
     first = task_fingerprint(
         Producer.ReproAgent, "run_experiment",

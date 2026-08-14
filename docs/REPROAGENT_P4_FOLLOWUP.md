@@ -1,5 +1,55 @@
 # ReproAgent P4 Contract Follow-up
 
+> Status (2026-08-14): partially implemented in ReproAgent commit `088d9f3`.
+> The module test suite passes (`158 passed`), but the three integration gaps
+> below must be fixed before P4 cloud acceptance.
+
+## Remaining review findings
+
+### A. Absolute Conda prefixes are resolved but executed/audited as names
+
+`ensure_environment()` accepts an absolute prefix, but
+`build_backend_command()` always emits `conda run -n <env_ref>`. Absolute
+prefixes require `conda run -p <prefix>`. Add one shared helper that selects
+`-p` for absolute paths and `-n` for names, and test the generated command for
+both forms. Audit and normal command execution must use the same helper.
+
+The audit currently also checks `env_prefix.name == state.environment.env_name`.
+That is valid for a name but always false for an absolute prefix. Normalize the
+expected reference to its resolved prefix and compare paths for prefix mode.
+
+### B. A previous successful audit can become stale after dependency changes
+
+The new gate checks only `state.last_audit.success`. After a successful audit,
+the agent can run package-install commands and retain the old successful audit,
+then launch an experiment without re-auditing the changed environment. Any
+environment-mutating setup command must invalidate `last_audit` (or advance an
+environment revision checked by the audit). Add a test for:
+
+1. successful audit;
+2. dependency installation/change;
+3. experiment command is blocked until a new audit succeeds.
+
+### C. Key-artifact truncation may drop the primary experiment evidence
+
+`_key_artifacts()` appends every command stdout/stderr in step order and then
+returns the first 12 entries. A long setup/probe phase can consume the cap and
+exclude later experiment logs. Classify and prioritize evidence before
+truncation: final result, audit, experiment logs/metrics/checkpoints first;
+setup/probe logs only as remaining capacity permits. Add a test with more than
+12 earlier logs and one late experiment log.
+
+### D. The certification gate can be bypassed by generic inline Python
+
+`_is_setup_command()` treats every `python -c ...` as setup-safe. Before a
+successful audit, an experiment can therefore be embedded in `python -c` and
+run through the setup whitelist. Replace command-shape guessing with an
+explicit pre-audit action policy: narrowly allow known import/version probes
+and package repair operations, and reject arbitrary inline programs. Add a
+test showing that `python -c` containing training/file mutation is blocked
+before audit while the exact audit probe remains available through
+`audit_env`.
+
 ## Scope
 
 This document describes remaining ReproAgent-owned contract work found in

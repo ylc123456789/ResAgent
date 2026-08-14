@@ -130,6 +130,25 @@ class TestReproAgentAdapter:
         from reproagent import models
         assert models.LAST_KW["dataset_cache_dir"] == "/task/override"
 
+    def test_environment_and_artifact_bindings_reach_repro_task(
+        self, tmp_path, monkeypatch,
+    ):
+        module_path = self._install_fake_reproagent(tmp_path, monkeypatch)
+        adapter = ReproAgentAdapter(module_path=str(module_path))
+        artifacts = [{"path": "/runs/result.json", "description": "baseline"}]
+
+        adapter._call_execute(
+            {
+                "paper_url": "p", "repo_url": "r", "env_name": "certified-env",
+                "input_artifacts": artifacts,
+            },
+            tmp_path / "out",
+        )
+
+        from reproagent import models
+        assert models.LAST_KW["env_name"] == "certified-env"
+        assert models.LAST_KW["input_artifacts"] == artifacts
+
     def test_blocked_state_collects_coding_issues_from_observations(
         self, tmp_path, monkeypatch,
     ):

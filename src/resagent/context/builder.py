@@ -131,8 +131,9 @@ def build_codingagent_context(task: AgentTask) -> dict:
 
 def build_reproagent_context(task: AgentTask) -> dict:
     """Extract ReproTask-like dict from an AgentTask."""
+    artifacts = task.input.get("input_artifacts", [])
     experiment_goal = _goal_with_dependency_artifacts(
-        task.input.get("experiment_goal", ""), task.input.get("input_artifacts", []),
+        task.input.get("experiment_goal", ""), artifacts,
     )
     return {
         "paper_url": task.input.get("paper_url", ""),
@@ -142,6 +143,14 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "setup_only": bool(task.input.get("setup_only", False)),
         "allow_code_delegation": bool(task.input.get("allow_code_delegation", False)),
         "env_name": task.input.get("env_name", ""),
+        "input_artifacts": [
+            {
+                "path": item.get("path", ""),
+                "description": _artifact_description(item),
+            }
+            for item in artifacts
+            if isinstance(item, dict) and item.get("path")
+        ],
         "experiment_goal": experiment_goal,
         "workspace_dir": task.input.get("workspace_dir", ""),
         "api_base": task.input.get("api_base", ""),
@@ -152,6 +161,17 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "codingagent_path": task.input.get("codingagent_path", ""),
         "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
     }
+
+
+def _artifact_description(item: dict) -> str:
+    parts = [
+        str(item.get("summary", "")).strip(),
+        f"producer task {item.get('producer_task_id', '')}"
+        if item.get("producer_task_id") else "",
+        f"artifact {item.get('artifact_id', '')}"
+        if item.get("artifact_id") else "",
+    ]
+    return "; ".join(part for part in parts if part)
 
 
 def _goal_with_dependency_artifacts(goal: str, artifacts: list[dict]) -> str:
