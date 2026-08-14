@@ -245,6 +245,23 @@ class ResearchState(BaseModel):
                 return a
         return None
 
+    def register_artifact(self, artifact: Artifact, task: "AgentTask | None" = None) -> None:
+        """Register ``artifact`` as the CURRENT one under its id.
+
+        Task-output artifact ids are task-derived (``repro_result_<n>``,
+        ``code_patch_<n>``), so a retry re-registers the same id. The stale
+        entry must be replaced: ``find_artifact`` returns the first match,
+        and a superseded attempt's output must never shadow the current
+        one. (Cloud regression 2026-08-14: a blocked attempt's report hid
+        the successful retry's result from the analysis task, which then
+        proposed a redundant re-run.)
+        """
+        self.artifacts = [a for a in self.artifacts if a.id != artifact.id]
+        self.artifacts.append(artifact)
+        if task is not None:
+            task.artifacts = [aid for aid in task.artifacts if aid != artifact.id]
+            task.artifacts.append(artifact.id)
+
     def next_task_number(self) -> int:
         """Return the next globally unique numeric task suffix."""
         numbers = []
@@ -259,5 +276,14 @@ class ResearchState(BaseModel):
         return len(self.decisions) + 1
 
     def next_artifact_number(self) -> int:
-        """Return the next artifact number (1-based)."""
-        return len(self.artifacts) + 1
+        """Return the next globally unique numeric artifact suffix.
+
+        Max-based (like next_task_number), robust to register_artifact
+        replacements shrinking the list.
+        """
+        numbers = []
+        for artifact in self.artifacts:
+            *_, suffix = artifact.id.rpartition("_")
+            if suffix.isdigit():
+                numbers.append(int(suffix))
+        return max(numbers, default=0) + 1

@@ -68,7 +68,7 @@ class ControllerActions:
 
         result = self.expagent.advise(state, layout, task=task)
         artifact = result["artifact"]
-        state.artifacts.append(artifact)
+        state.register_artifact(artifact, task)
         for spawned in result.get("tasks", []):
             supersedes = spawned.input.get("supersedes_task_id", "")
             previous = state.find_task(supersedes) if supersedes else None
@@ -81,7 +81,6 @@ class ControllerActions:
         task_ids = [t.id for t in result.get("tasks", [])]
         if task is not None:
             task.status = TaskStatus.completed
-            task.artifacts.append(artifact.id)
             task.attempts[-1].artifacts.append(artifact.id)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task_ids.insert(0, task.id)
@@ -111,8 +110,7 @@ class ControllerActions:
 
         try:
             result = self.codingagent.execute(task, layout, attempt_num)
-            state.artifacts.append(result["artifact"])
-            task.artifacts.append(result["artifact"].id)
+            state.register_artifact(result["artifact"], task)
             outcome = result.get("outcome", "completed")
             if outcome in {"completed", "completed_with_warnings"}:
                 task.status = TaskStatus.completed
@@ -172,8 +170,7 @@ class ControllerActions:
 
         try:
             result = self.reproagent.execute(task, layout, attempt_num)
-            state.artifacts.append(result["artifact"])
-            task.artifacts.append(result["artifact"].id)
+            state.register_artifact(result["artifact"], task)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1

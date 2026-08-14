@@ -363,6 +363,86 @@ def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):
     assert followup[0].input["workspace_path"] == str(repo)
 
 
+def test_retry_replaces_stale_attempt_artifact(tmp_path):
+    """A retried task's artifact replaces the stale one under the same id.
+
+    Regression (cloud v2-regression-20260814): attempt 1 blocked and its
+    report was registered as repro_result_001; attempt 2 succeeded and
+    registered the SAME task-derived id. With both entries in the registry,
+    find_artifact resolved to the blocked report and the analysis concluded
+    no usable result existed, forcing a redundant re-run. The registry must
+    hold exactly the latest artifact for the id.
+    """
+    class FlakyReproAgent:
+        def execute(self, task, layout, attempt_number=1):
+            if attempt_number == 1:
+                text, outcome = "Status: blocked — code changes required", "blocked"
+            else:
+                text, outcome = "Status: completed — test acc 0.99", "completed"
+            path = tmp_path / f"result_att{attempt_number}.md"
+            path.write_text(text, encoding="utf-8")
+            return {
+                "artifact": Artifact(
+                    id="repro_result_001",
+                    type=ArtifactType.repro_result,
+                    producer=Producer.ReproAgent,
+                    path=str(path),
+                    summary=text[:200],
+                ),
+                "outcome": outcome,
+                "raw": {"summary": outcome},
+                "workspace_path": "",
+            }
+
+    state = init_state("retry-artifacts", str(tmp_path), "run the experiment")
+    task = AgentTask(
+        id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+        capability="execute_experiment", input={"objective": "run it"},
+    )
+    state.tasks.append(task)
+    ctrl = Controller(
+        planner=ScriptedPlanner([
+            PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
+            PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
+        ]),
+        expagent=ExpAgentAdapter(mock=True),
+        codingagent=CodingAgentAdapter(mock=True),
+        reproagent=FlakyReproAgent(),
+    )
+
+    ctrl.step(state)  # attempt 1: blocked
+    ctrl.step(state)  # attempt 2: completed (post-repair retry)
+
+    assert task.status == TaskStatus.completed
+    matching = [a for a in state.artifacts if a.id == "repro_result_001"]
+    assert len(matching) == 1, "stale attempt artifact must be replaced"
+    current = state.find_artifact("repro_result_001")
+    assert current.path.endswith("result_att2.md")
+    assert "completed" in current.summary
+    assert task.artifacts == ["repro_result_001"]
+
+
+def test_artifact_numbering_is_stable_after_replacement(tmp_path):
+    """next_artifact_number is max-based, immune to register replacements."""
+    state = init_state("artifact-numbering", str(tmp_path), "numbering")
+    state.register_artifact(Artifact(
+        id="exp_decision_001", type=ArtifactType.scientific_decision,
+        producer=Producer.ExpAgent, path="d1",
+    ))
+    state.register_artifact(Artifact(
+        id="repro_result_002", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="r2",
+    ))
+    assert state.next_artifact_number() == 3
+    # Replacement shrinks the list; numbering must not reuse an existing id.
+    state.register_artifact(Artifact(
+        id="repro_result_002", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="r2-new",
+    ))
+    assert len(state.artifacts) == 2
+    assert state.next_artifact_number() == 3
+
+
 def test_p4_scenario_is_repro_then_expagent_then_finish(tmp_path):
     """The P4 flow: one experiment, then one analysis, then a clean finish."""
     state = init_state(
