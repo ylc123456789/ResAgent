@@ -234,9 +234,225 @@ analysis_required: bool = False
 
 默认值为 `True`。不能通过“模型没生成分析任务”隐式跳过。
 
-## 7. ExpAgent 修改方案
+## 7. 按模块分工与交付
 
-### 7.1 Schema
+本章是实际开发时的任务入口。可将对应模块小节直接交给该模块的开发 AI；各模块必须共同遵守 §1-§6 的目标、职责边界与 V2 科学动作契约。后文附录保留完整技术细节、跨模块验收和基线信息。
+
+### 7.1 ExpAgent 任务包
+
+**负责方**：ExpAgent 专属开发会话
+
+**开发分支**：`refactor/scientific-action-contract-v2`
+
+**目标**：ExpAgent 只描述科学上要做什么、为什么做以及动作依赖，不输出执行模块、路径、环境和重试状态。
+
+修改范围：
+
+- `src/experiment_designer/models.py`
+- `src/experiment_designer/prompts/schemas.py`
+- `src/experiment_designer/prompts/system.py`
+- `src/experiment_designer/prompts/rendering.py`
+- `src/experiment_designer/controller/validator.py`
+- `src/experiment_designer/validator.py`
+- 相关 presentation/report 序列化代码与测试
+- ExpAgent 自己的 `agent.yaml`
+
+必须完成：
+
+1. 用 §6 的 V2 discriminated union 替代 `RecommendedAction + SuggestedPlan`。
+2. 保留 `ScientificDecision.recommended_actions`，但将元素切换为 V2 typed action。
+3. Prompt 明确区分 `execute_experiment`、`reproduce_experiment` 与 `analyze_results`。
+4. Validator 检查 action ID、依赖、DAG、capability、结果分析覆盖和物理字段越界。
+5. 对错误计划要求模型修订；达到上限后 fail closed，不用关键词 heuristic 偷偷改写。
+6. 更新能力卡，使 `analyze_results`、`search_literature` 等能力与实际接口一致。
+
+必须删除或完成使用审计后删除：
+
+- `RecommendedAction.type` 与 `SuggestedPlan.kind` 的双重判别；
+- orchestration 不再使用的 legacy action schema；
+- 将科学分析描述成 `run_task` 的 prompt 示例；
+- 若 standalone API 无真实调用，则删除旧 `TaskBundle/CodingTask/ReproTask/RunTask`；若仍有调用，则与 orchestration action 明确隔离。
+
+交付物：
+
+- V2 schema、prompt、validator 和序列化实现；
+- 一份 ODE-Net 规划 fixture，稳定输出 `execute_experiment → analyze_results`；
+- ExpAgent 全量测试结果；
+- 提供给 ResAgent 的 V2 `ScientificDecision` 示例 artifact。
+
+模块验收：
+
+- “运行实验并分析偏差”生成 `execute_experiment → analyze_results`；
+- `analyze_results` 无结果依赖时被拒绝；
+- required 实验无分析覆盖时被拒绝；
+- 工程 smoke 显式 `analysis_required=false` 时允许无分析；
+- action 不含 executor、workspace、env 或绝对路径。
+
+详细设计见附录 A；跨模块契约以 §6 为准。
+
+### 7.2 ResAgent 任务包
+
+**负责方**：ResAgent 开发会话
+
+**开发分支**：`codex/scientific-orchestration-v2`
+
+**目标**：统一能力来源，把 V2 科学动作转换成内部任务 DAG，并以确定性规则保证实验后的科学分析和正确完成判定。
+
+修改范围：
+
+- `src/resagent/capabilities.py`
+- `src/resagent/config.py`
+- `src/resagent/controller/planner.py`
+- `src/resagent/controller/prompts.py`
+- `src/resagent/controller/contracts.py`
+- `src/resagent/adapters/expagent/task_conversion.py`
+- `src/resagent/models.py`（仅在确有必要时）
+- Chat router 使用能力注册表的入口
+- 确定性闭环、跨模块 fixture 和云端 acceptance 测试
+
+必须完成：
+
+1. 从配置指定的模块路径加载各模块 `agent.yaml`，形成 Chat 与 ResearchRun 共用的唯一 `CapabilityRegistry`。
+2. 校验 capability 唯一归属；缺失或冲突时 fail closed。
+3. Controller prompt 动态渲染能力摘要，不再写死团队角色。
+4. 将 V2 `ScientificAction.capability` 确定性解析为 executor，再转换成内部 `AgentTask`。
+5. 保持 repo/workspace、Conda、artifact materialization、shared/isolated、retry、attempt 和 code repair 的所有权在 ResAgent。
+6. 实现 `analysis_coverage()`、缺失分析时的去重兜底任务和 finish gate。
+7. `allowed_action_candidates()` 只暴露已登记任务的精确候选，删除无法兑现的自由 re-consult 提示。
+
+必须删除：
+
+- Controller 中硬编码的团队能力说明；
+- 与真实模块卡重复的正式 `BUILTIN_CARDS`；
+- `_infer_executor()` 中按旧 action 名称维护的主路由；
+- `_upgrade_legacy_action_ids()`；
+- V1 `type/plan.kind` normalization、fallback 和兼容检查；
+- 无法实际执行的“重大结果后自由咨询”规则；
+- 被 V2 取代的旧执行契约文档，或明确标记为 superseded。
+
+交付物：
+
+- 统一能力注册表和动态 controller context；
+- V2 action→AgentTask 转换；
+- analysis coverage、去重 fallback、finish gate；
+- 本地确定性闭环和云端 ODE-Net acceptance；
+- 四仓库 commit、dirty 状态及测试配置记录。
+
+模块验收：
+
+- 六类 capability 均路由到唯一正确模块；
+- Chat router 与 ResearchRun 对同一能力得到同一模块；
+- experiment artifact 自动绑定给 `analyze_results`；
+- 缺失分析只补一个 ExpAgent task；
+- 未分析结果阻止 finish，工程 smoke 不阻止；
+- P4 同类流程变为一次 ReproAgent 实验后调用 ExpAgent，不再出现第二个 ReproAgent 报告任务。
+
+详细设计见附录 B-E；清理要求见附录 F。
+
+### 7.3 ReproAgent 任务包
+
+**负责方**：ReproAgent 专属开发会话
+
+**开发分支**：`feat/capability-card-v2`
+
+**目标**：只校准模块能力声明和边界，不重写现有实验执行 loop。
+
+修改范围：
+
+- ReproAgent 的 `agent.yaml`；
+- 能力卡加载或校验测试（仅在模块内已有对应机制时）；
+- 必要的文档说明。
+
+必须完成：
+
+1. 声明角色为 experiment operator。
+2. 声明 `reproduce_experiment` 与 `execute_experiment`。
+3. 准确描述输入合同、输出合同和 workspace/environment 副作用。
+4. 明确输出是实验 evidence、日志和原始指标，不是最终科学结论。
+5. 保持独立 CLI、Experiment Operator、环境与 evidence 合同不变。
+
+不在本次修改：
+
+- 实验执行 agentic loop；
+- Conda 环境管理；
+- 数据集、pip、Torch 或 repo 缓存；
+- workspace/artifact 布局；
+- 里程碑二资源管理能力。
+
+交付物与验收：
+
+- 可由 ResAgent registry 成功加载且无 capability 冲突的 `agent.yaml`；
+- 独立 CLI 和现有全量测试通过；
+- dependency-chain、coding、env-reuse 与 GPU repro 行为不退化。
+
+能力卡格式参考附录 B；本次非目标参考 §3 和附录 L。
+
+### 7.4 CodingAgent 任务包
+
+**负责方**：CodingAgent 专属开发会话
+
+**开发分支**：原则上不开功能分支；若能力卡确需改动，再从 `main` 建短生命周期 `codex/` 分支
+
+**目标**：验证通用编程能力可被统一注册表识别，不修改 CodingAgent 的 agentic loop。
+
+修改范围：
+
+- CodingAgent 的 `agent.yaml`；
+- 能力卡加载或校验测试（仅在必要时）；
+- 必要的文档说明。
+
+必须完成：
+
+1. 声明 `modify_code` capability。
+2. 准确描述输入合同、补丁/报告输出和代码 workspace 副作用。
+3. 保持 CodingAgent 可独立使用，不加入 ResAgent 特化逻辑。
+4. 保持 clone、环境策略、session bindings 与现有 loop 不变。
+
+交付物与验收：
+
+- 能力卡可由 ResAgent registry 加载且不与其他模块冲突；
+- 独立 CLI 和全量测试通过；
+- ResAgent 仍只通过适配器和合同调用，不直接修改 CodingAgent 内部实现。
+
+### 7.5 跨模块集成与总体会话
+
+**负责方**：ResAgent 总体会话
+
+**目标**：管理契约切换顺序、跨模块 fixture、最终清理和验收，不跨边界直接修改三个子模块本体。
+
+实施顺序：
+
+```text
+Phase 0：四模块基线冻结与旧模型使用审计
+    ↓
+ExpAgent：V2 schema/prompt/validator
+    ↓
+ReproAgent / CodingAgent：能力卡校准（可并行）
+    ↓
+ResAgent：统一 registry、V2 conversion、科学闭环
+    ↓
+四模块全量测试 + 确定性闭环
+    ↓
+云端 ODE-Net 验收
+    ↓
+删除残余 V1 路径并合并
+```
+
+集成退出标准：
+
+- 附录 I 的完成定义全部满足；
+- 附录 H 的本地与云端验收全部通过；
+- V2 是唯一 orchestration 主线，没有永久 V1/V2 双解析；
+- 四模块版本和 dirty 状态记录完整；
+- 子模块问题由对应会话修改，总体会话负责复核。
+
+## 8. 共享技术附录
+
+以下内容保留原方案的完整技术说明。模块开发 AI 应先阅读自己的任务包，再按引用查阅对应附录。
+
+### 附录 A：ExpAgent 修改方案
+
+#### A.1 Schema
 
 预计修改：
 
@@ -252,7 +468,7 @@ analysis_required: bool = False
 4. 保留 `ScientificDecision.recommended_actions` 这个概念，但元素类型切换为 V2。
 5. `ExperimentPlan` 的独立 standalone API 若仍被使用，应与 orchestration actions 明确分离；若无调用，删除旧 `TaskBundle/CodingTask/ReproTask/RunTask`。
 
-### 7.2 Prompt
+#### A.2 Prompt
 
 预计修改：
 
@@ -267,7 +483,7 @@ analysis_required: bool = False
 - “生成 deviation report”属于 `analyze_results`，不属于实验执行。
 - 不允许输出 module/executor、路径和环境字段。
 
-### 7.3 Validator
+#### A.3 Validator
 
 预计修改：
 
@@ -285,16 +501,16 @@ analysis_required: bool = False
 
 不要通过关键词 heuristic 自动改写错误动作。错误计划返回模型重修；达到修订上限则 fail closed。
 
-### 7.4 ExpAgent 验收
+#### A.4 ExpAgent 验收
 
 - 给定“运行实验并分析偏差”，输出 `execute_experiment → analyze_results`。
 - 给定纯工程 import smoke，允许 `analysis_required=false`。
 - 给定 analyze action 无依赖，validator 拒绝。
 - 输出中不存在 workspace/env/executor。
 
-## 8. 统一能力注册表
+### 附录 B：统一能力注册表
 
-### 8.1 能力卡格式
+#### B.1 能力卡格式
 
 三个执行模块都必须提供 `agent.yaml`。建议结构：
 
@@ -312,7 +528,7 @@ status: available
 
 ExpAgent 和 CodingAgent 使用同一 capability 词表。
 
-### 8.2 ResAgent 加载行为
+#### B.2 ResAgent 加载行为
 
 预计修改：
 
@@ -329,7 +545,7 @@ ExpAgent 和 CodingAgent 使用同一 capability 词表。
 4. capability→executor 由 registry 确定性解析，不交给 LLM 猜。
 5. Chat router 继续复用同一 registry 实例或同一加载函数。
 
-### 8.3 删除项
+#### B.3 删除项
 
 迁移完成后删除：
 
@@ -340,9 +556,9 @@ ExpAgent 和 CodingAgent 使用同一 capability 词表。
 
 允许保留最小错误提示，但不能保留第二套默认能力表。
 
-## 9. ResAgent V2 转换与调度
+### 附录 C：ResAgent V2 转换与调度
 
-### 9.1 动作转换
+#### C.1 动作转换
 
 预计修改：
 
@@ -362,7 +578,7 @@ AgentTask
 
 `AgentTask.agent`、`AgentTask.kind` 仍可作为 ResAgent 内部执行模型保留。外部科学契约不再暴露这些实现细节。
 
-### 9.2 资源与物理字段
+#### C.2 资源与物理字段
 
 ResAgent 继续负责：
 
@@ -375,7 +591,7 @@ ResAgent 继续负责：
 
 这些逻辑不得移入 ExpAgent。
 
-### 9.3 删除旧转换逻辑
+#### C.3 删除旧转换逻辑
 
 切换完成后删除：
 
@@ -386,9 +602,9 @@ ResAgent 继续负责：
 
 主线只接受 V2 typed action。无效输入清晰失败并保留原始 ExpAgent artifact 供诊断。
 
-## 10. 科学结果闭环
+### 附录 D：科学结果闭环
 
-### 10.1 Analysis coverage
+#### D.1 Analysis coverage
 
 在 ResAgent 中新增一个小而明确的策略函数，例如：
 
@@ -404,7 +620,7 @@ analysis_coverage(state, experiment_task_id) -> covered | missing | not_required
 - depends_on 覆盖对应实验 task；
 - ExpAgent 产出 `scientific_decision` artifact。
 
-### 10.2 缺失分析时的兜底
+#### D.2 缺失分析时的兜底
 
 ExpAgent validator 是第一道防线。ResAgent 是第二道防线：
 
@@ -415,7 +631,7 @@ ExpAgent validator 是第一道防线。ResAgent 是第二道防线：
 
 这不是允许 ResAgent 任意发明科研任务；它只能补齐“分析已完成实验”的闭环节点。
 
-### 10.3 Finish gate
+#### D.3 Finish gate
 
 预计修改：
 
@@ -429,7 +645,7 @@ ExpAgent validator 是第一道防线。ResAgent 是第二道防线：
 => finish 不允许
 ```
 
-### 10.4 Allowed actions
+#### D.4 Allowed actions
 
 Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
@@ -438,7 +654,7 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 - `allowed_action_candidates()` 只暴露已登记 task 的精确候选。
 - 删除无法由候选动作兑现的 prompt 规则。
 
-## 11. 主线控制流
+### 附录 E：主线控制流
 
 ```text
 1. ResAgent 创建 initial ExpAgent advisory task
@@ -455,18 +671,18 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
 这是一条循环主线，不新增第二套 workflow engine、黑板或事件总线。
 
-## 12. 代码清理清单
+### 附录 F：代码清理清单
 
 实施时必须同步完成以下清理，不留 TODO 式旧路径：
 
-### ExpAgent
+#### F.1 ExpAgent
 
 - 删除 `RecommendedAction.type` 与 `SuggestedPlan.kind` 双重判别。
 - 删除 orchestration 不再使用的旧 action schema。
 - 审计并删除未被 standalone API 使用的 `TaskBundle` 系列模型。
 - 删除将科学分析描述成 run task 的 prompt 示例。
 
-### ResAgent
+#### F.2 ResAgent
 
 - 删除 controller 硬编码团队能力说明。
 - 删除重复内置正式能力卡。
@@ -475,7 +691,7 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 - 删除无法实际执行的“自由 re-consult”规则。
 - 更新旧文档，将 `EXECUTION_CONTRACT_V1.md` 标记 superseded 或直接删除。
 
-### 保留
+#### F.3 保留
 
 - `AgentTask` 内部状态模型；
 - adapters；
@@ -483,9 +699,9 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 - retry、safety、workspace policy；
 - ReproAgent/CodingAgent 独立运行能力。
 
-## 13. 实施阶段
+### 附录 G：实施阶段
 
-### Phase 0：基线冻结和使用审计
+#### G.1 Phase 0：基线冻结和使用审计
 
 目标：确认哪些旧模型仍被真实入口使用，避免误删独立 API。
 
@@ -498,7 +714,7 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
 退出标准：形成明确的删除列表，不以“可能有人用”为理由保留死代码。
 
-### Phase 1：ExpAgent V2
+#### G.2 Phase 1：ExpAgent V2
 
 目标：ExpAgent 输出单一语义动作契约并保证实验后分析。
 
@@ -506,7 +722,7 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
 退出标准：ExpAgent 单测通过，ODE-Net 规划稳定输出 `execute_experiment → analyze_results`。
 
-### Phase 2：ResAgent 能力注册与 V2 转换
+#### G.3 Phase 2：ResAgent 能力注册与 V2 转换
 
 目标：统一 Chat/controller 能力来源并按 capability 路由。
 
@@ -514,19 +730,19 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
 退出标准：相同 action 在不同入口只经过一套 registry；缺卡/冲突 fail closed。
 
-### Phase 3：科学闭环与清理
+#### G.4 Phase 3：科学闭环与清理
 
 目标：补 coverage、finish gate、去重兜底，并删除旧主线。
 
 退出标准：没有 V1 parser、没有双能力表、没有未兑现 prompt 规则。
 
-### Phase 4：验收
+#### G.5 Phase 4：验收
 
 目标：本地确定性测试和云端真实测试。
 
-退出标准见 §15。
+退出标准见附录 H。
 
-## 14. 模块分工
+### 附录 H：原模块分工与测试验收
 
 | 工作 | 模块 | 建议负责方 |
 |---|---|---|
@@ -538,9 +754,9 @@ Controller 不再依赖自由的“重大结果后重新咨询”提示。
 
 ResAgent 不直接修改 ExpAgent/ReproAgent/CodingAgent 本体。跨模块问题以交办文档和验收测试处理。
 
-## 15. 测试与验收标准
+#### H.1 测试与验收标准
 
-### 15.1 ExpAgent 单测
+##### H.1.1 ExpAgent 单测
 
 - 实验+解释需求生成 `execute_experiment → analyze_results`。
 - `analyze_results` 缺依赖时 validator 拒绝。
@@ -548,7 +764,7 @@ ResAgent 不直接修改 ExpAgent/ReproAgent/CodingAgent 本体。跨模块问�
 - smoke test 显式 `analysis_required=false` 时允许无分析。
 - action 输出不含 executor/workspace/env/绝对路径。
 
-### 15.2 ResAgent 单测
+##### H.1.2 ResAgent 单测
 
 - capability registry 从模块卡解析唯一 executor。
 - controller context 包含 registry 内容，不包含硬编码团队表。
@@ -560,7 +776,7 @@ ResAgent 不直接修改 ExpAgent/ReproAgent/CodingAgent 本体。跨模块问�
 - smoke test 不阻止 finish。
 - Chat router 与 controller 对同一能力得到相同模块。
 
-### 15.3 确定性跨模块闭环
+##### H.1.3 确定性跨模块闭环
 
 预期任务树：
 
@@ -580,7 +796,7 @@ finish
 - 无重复分析 task；
 - run status 为 completed。
 
-### 15.4 云端 ODE-Net 验收
+##### H.1.4 云端 ODE-Net 验收
 
 复用 P4 本地仓库和数据集缓存，避免 GitHub 网络成为干扰变量。
 
@@ -594,13 +810,13 @@ finish
 - 总任务数和调用次数不膨胀；
 - run 正常 finish，无 ask_user 伪阻塞。
 
-### 15.5 回归
+##### H.1.5 回归
 
 - 四模块原有单测全部通过；
 - dependency-chain、coding、env-reuse 不退化；
 - ReproAgent 独立 CLI 和 CodingAgent 独立 CLI 不受影响。
 
-## 16. 完成定义
+### 附录 I：完成定义
 
 只有同时满足以下条件，重构才算完成：
 
@@ -612,7 +828,7 @@ finish
 6. 全量测试和云端 GPU 验收通过。
 7. 文档与实际代码一致，不再让新开发者同时理解两套协议。
 
-## 17. 推荐实施顺序
+### 附录 J：推荐实施顺序
 
 ```text
 Phase 0 使用审计
@@ -630,11 +846,11 @@ ResAgent Phase 3 + 删除旧主线
 
 不要先在 ResAgent 中增加自然语言 reroute heuristic，也不要先通过扩大 ReproAgent step budget 掩盖问题。正确修复点是科学动作语义、统一能力路由和 finish 闭环。
 
-## 18. P4 稳定基线与分支策略
+### 附录 K：P4 稳定基线与分支策略
 
 V2 开发不得继续叠加在 readability 或 experiment-operator 历史功能分支上。先将已经通过 P4 云端验收的版本收口到各仓库默认分支，再建立新的短生命周期分支。
 
-### 18.1 P4 基线来源
+#### K.1 P4 基线来源
 
 | 模块 | 已验收来源分支 | 合并目标 | 基线说明 |
 |---|---|---|---|
@@ -645,7 +861,7 @@ V2 开发不得继续叠加在 readability 或 experiment-operator 历史功能�
 
 ReproAgent 的 `refactor/readability-layout` 已是 `experiment-operator` 的祖先，不单独再合并一次。
 
-### 18.2 收口步骤
+#### K.2 收口步骤
 
 1. 四仓库工作区必须干净；开发文档先提交到 ResAgent 功能分支。
 2. 默认分支只接受 `--ff-only` 快进合并；若不能快进，停止并审计，不现场制造 merge commit。
@@ -661,7 +877,7 @@ reproagent: feat/capability-card-v2
 CodingAgent: 不开功能分支，仅作为依赖验收
 ```
 
-### 18.3 跨仓库版本记录
+#### K.3 跨仓库版本记录
 
 每次云端验收必须记录四个仓库的 commit 与 dirty 状态。P4 标签是本次 V2 的回滚点；V2 acceptance 报告必须同时记录：
 
@@ -675,11 +891,11 @@ CodingAgent: 不开功能分支，仅作为依赖验收
 
 不要用“最新版”作为测试版本描述。
 
-## 19. 后续里程碑二：环境复用与资源管理（本次不实施）
+### 附录 L：后续里程碑二：环境复用与资源管理（本次不实施）
 
-本节只记录后续方向，避免 V2 科学编排重构夹带环境系统改造。进入里程碑二的前提是 §16 全部完成。
+本节只记录后续方向，避免 V2 科学编排重构夹带环境系统改造。进入里程碑二的前提是附录 I 全部完成。
 
-### 19.1 目标
+#### L.1 目标
 
 里程碑二解决的是“相同实验尽量复用、不同依赖安全隔离、所有资源可追踪和可清理”，不是模块职责路由。
 
@@ -691,7 +907,7 @@ CodingAgent: 不开功能分支，仅作为依赖验收
 4. 缓存命中、环境复用、环境新建三种状态在报告中分开表达。
 5. 支持磁盘配额、引用关系和安全清理。
 
-### 19.2 环境身份
+#### L.2 环境身份
 
 候选环境指纹至少覆盖：
 
@@ -710,7 +926,7 @@ resenv_<project_slug>_<fingerprint>
 
 仅名字相同不能直接复用，必须读取 env manifest 并重新执行轻量审计。
 
-### 19.3 Env manifest
+#### L.3 Env manifest
 
 每个环境对应一个机器级 manifest，至少记录：
 
@@ -730,7 +946,7 @@ audit_artifact: ...
 
 ResAgent 的 `ResourceRef` 保存项目内引用；机器级 registry 保存物理环境生命周期。两者不能混成一份全局 `state.json`。
 
-### 19.4 缓存可观测性
+#### L.4 缓存可观测性
 
 ReproAgent session/report 应明确记录：
 
@@ -745,7 +961,7 @@ environment: reused | created | repaired
 
 P4 事实基线：MNIST dataset cache 为 hit；pip cache 路径已生效，但 Torch 2.6.0 与 CUDA 依赖在该次运行中重新下载，因此该次不能记为 pip/Torch cache hit。
 
-### 19.5 并发与安全
+#### L.5 并发与安全
 
 - 同一 fingerprint 创建环境时使用文件锁；
 - 创建失败的半成品环境必须标记并可回收；
@@ -753,7 +969,7 @@ P4 事实基线：MNIST dataset cache 为 hit；pip cache 路径已生效，但 
 - 环境修复产生新 revision，不静默破坏其他 run 正在使用的环境；
 - 删除前检查活动进程与项目引用。
 
-### 19.6 清理策略
+#### L.6 清理策略
 
 - 数据集缓存：默认长期保留，按显式管理命令清理；
 - pip/repo cache：按 LRU 和总容量上限清理；
@@ -761,7 +977,7 @@ P4 事实基线：MNIST dataset cache 为 hit；pip cache 路径已生效，但 
 - run workspace：由项目归档策略管理，不与机器缓存联动删除；
 - 所有清理先 dry-run，输出将删除的绝对路径和预计释放空间。
 
-### 19.7 里程碑二验收
+#### L.7 里程碑二验收
 
 - 两个独立 run 使用相同依赖时，第二个 run 不重新下载 Torch，也不新建环境；
 - 依赖或 CUDA 变体变化时创建新环境，不错误复用；
