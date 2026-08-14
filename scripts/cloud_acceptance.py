@@ -14,7 +14,8 @@ import yaml
 
 from resagent.config import load_config
 from resagent.models import (
-    ActionName, AgentKind, AgentTask, Producer, RunStatus, TaskStatus,
+    ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Producer,
+    RunStatus, TaskStatus,
 )
 from resagent.orchestrator import build_controller, init_run
 from resagent.planner import PlannedAction
@@ -38,15 +39,27 @@ class SequencePlanner:
 
 def _step_until_stop(state, controller, max_steps=12):
     observations = []
-    for _ in range(max_steps):
-        obs = controller.step(state)
+    try:
+        for _ in range(max_steps):
+            obs = controller.step(state)
+            save_state(state)
+            observations.append(obs)
+            print(f"[{state.run.run_id}] {obs.action.value}: {obs.result}")
+            if obs.result in {"error", "rejected"}:
+                raise AssertionError(f"{obs.action.value} failed: {obs.detail}")
+            if obs.action == ActionName.finish or obs.result == "user_response_required":
+                break
+        else:
+            raise AssertionError(f"controller did not stop within {max_steps} steps")
+    except KeyboardInterrupt:
+        state.run.status = RunStatus.interrupted
         save_state(state)
-        observations.append(obs)
-        print(f"[{state.run.run_id}] {obs.action.value}: {obs.result}")
-        if obs.result in {"error", "rejected"}:
-            raise AssertionError(f"{obs.action.value} failed: {obs.detail}")
-        if obs.action == ActionName.finish or obs.result == "user_response_required":
-            break
+        raise
+    except Exception:
+        if state.run.status not in {RunStatus.paused, RunStatus.completed}:
+            state.run.status = RunStatus.failed
+        save_state(state)
+        raise
     return observations
 
 
@@ -162,6 +175,11 @@ def case_repro(
                  if task.agent == Producer.ReproAgent
                  and task.status == TaskStatus.completed]
     assert completed, "no ReproAgent task completed"
+    unresolved = [
+        task.id for task in state.tasks
+        if task.required and task.status != TaskStatus.completed
+    ]
+    assert not unresolved, f"required tasks unresolved: {unresolved}"
     assert state.run.status == RunStatus.completed, f"run ended as {state.run.status}"
     evidence = _artifact_text(state).lower()
     assert any(token in evidence for token in ("gpu", "cuda", "4090")), (
@@ -287,8 +305,71 @@ def case_dependency_chain(config, workspace: Path) -> dict:
             "source_workspace": str(repo), "snapshot": str(copied)}
 
 
+def case_fan_in_analysis(config, workspace: Path) -> dict:
+    """Verify real ExpAgent receives all prerequisite result artifacts."""
+    state = init_run(
+        "Compare two completed bounded experiments and explain which result is better.",
+        workspace_root=str(workspace / "runs"), config=config,
+    )
+    run_root = Path(state.run.workspace_dir) / state.run.run_id
+    dependencies = []
+    for number, accuracy in ((1, 0.91), (2, 0.94)):
+        result_path = run_root / "fixtures" / f"result_{number}.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps({"accuracy": accuracy, "runtime_seconds": 10 + number}),
+            encoding="utf-8",
+        )
+        artifact_id = f"fixture_result_{number}"
+        state.artifacts.append(Artifact(
+            id=artifact_id, type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path=str(result_path.relative_to(run_root)),
+            summary=f"bounded experiment {number}: accuracy={accuracy}",
+        ))
+        dependency = AgentTask(
+            id=f"task_{number:03d}", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task, status=TaskStatus.completed,
+            artifacts=[artifact_id], required=True,
+        )
+        dependencies.append(dependency)
+    analysis = AgentTask(
+        id="task_003", agent=Producer.ExpAgent, kind=AgentKind.advise,
+        capability="analyze_result", required=True,
+        depends_on=[task.id for task in dependencies],
+        input={
+            "task_goal": (
+                "Compare the two supplied experiment artifacts. State which has "
+                "higher accuracy and cite both artifact values. Do not schedule "
+                "new experiments."
+            ),
+        },
+    )
+    state.tasks.extend([*dependencies, analysis])
+    controller = build_controller(config, mock=False)
+    controller.planner = SequencePlanner([
+        PlannedAction(ActionName.call_exp_agent, {"task_id": analysis.id}),
+        PlannedAction(ActionName.finish, {"summary": "fan-in analysis completed"}),
+    ])
+
+    observations = _step_until_stop(state, controller, max_steps=2)
+
+    assert analysis.status == TaskStatus.completed
+    assert len(analysis.input.get("input_artifacts", [])) == 2
+    decision = state.find_artifact(analysis.artifacts[-1])
+    assert decision is not None
+    evidence = (run_root / decision.path).read_text(encoding="utf-8").lower()
+    assert "0.91" in evidence and "0.94" in evidence
+    assert state.run.status == RunStatus.completed
+    _assert_artifacts_exist(state)
+    _assert_parent_links(state, {"expagent"})
+    return {"run_id": state.run.run_id, "steps": len(observations),
+            "input_artifacts": len(analysis.input["input_artifacts"])}
+
+
 CASES = {"coding": case_coding, "repro": case_repro,
          "dependency-chain": case_dependency_chain,
+         "fan-in-analysis": case_fan_in_analysis,
          "env-reuse": case_env_reuse}
 
 

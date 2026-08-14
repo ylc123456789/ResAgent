@@ -18,6 +18,7 @@ class RunStatus(str, Enum):
     paused = "paused"
     completed = "completed"
     failed = "failed"
+    interrupted = "interrupted"
 
 
 class TaskStatus(str, Enum):
@@ -151,6 +152,7 @@ class AgentTask(BaseModel):
     artifacts: list[str] = Field(default_factory=list)  # artifact ids
     attempts: list[Attempt] = Field(default_factory=list)
     error: str = ""
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DecisionRecord(BaseModel):

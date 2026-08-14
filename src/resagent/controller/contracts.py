@@ -207,7 +207,7 @@ def _expagent_capability(kind: str) -> str:
 
 def required_from_priority(priority: TaskPriority,
                            action: dict[str, Any]) -> bool:
-    """Explicit requirement wins; high-priority work blocks finish by default."""
+    """Return explicit optionality, defaulting research work to required."""
     if "required" in action:
         return bool(action["required"])
-    return priority == TaskPriority.high
+    return True

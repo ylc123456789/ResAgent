@@ -212,6 +212,7 @@ def _inject_setup_actions(actions: list[dict]) -> list[dict]:
                 "project_ref": project_ref,
                 "workspace_intent": "isolated",
                 "rationale": "Prepare and audit the repository environment before code changes.",
+                "required": True,
                 "plan": {
                     "kind": "repro_task",
                     "repo_url": plan.get("repo_url", ""),

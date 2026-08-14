@@ -6,7 +6,7 @@ from resagent.models import (
 )
 from resagent.task_contracts import (
     allowed_action_candidates, normalize_recommended_action,
-    task_fingerprint, validate_finish,
+    required_from_priority, task_fingerprint, validate_finish,
 )
 
 
@@ -112,3 +112,13 @@ def test_resagent_ask_user_task_is_an_allowed_candidate(tmp_path):
         capability="request_user_input", input={"question": "Proceed?"},
     ))
     assert {"action": "ask_user", "task_id": "task_001"} in allowed_action_candidates(state)
+
+
+def test_priority_does_not_make_research_work_optional():
+    from resagent.models import TaskPriority
+
+    assert required_from_priority(TaskPriority.medium, {}) is True
+    assert required_from_priority(TaskPriority.low, {}) is True
+    assert required_from_priority(
+        TaskPriority.high, {"required": False},
+    ) is False

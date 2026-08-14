@@ -77,16 +77,28 @@ class Controller(ControllerActions):
 
     def run(self, state: ResearchState, max_steps: int = 50) -> ResearchState:
         """Run the full agentic loop until finish, max_steps, or pause (user_response_required)."""
+        if state.run.status == RunStatus.interrupted:
+            state.run.status = RunStatus.running
+        stopped = False
         for _ in range(max_steps):
             obs = self.step(state)
             save_state(state)
 
             if obs.action == ActionName.finish and obs.result in {"ok", "terminal"}:
                 save_state(state)
+                stopped = True
                 break
 
             if obs.result == "user_response_required":
                 save_state(state)
+                stopped = True
                 break
+
+        if not stopped and state.run.status == RunStatus.running:
+            state.run.status = RunStatus.interrupted
+            state.current_summary = (
+                f"Run interrupted after reaching the {max_steps}-step controller limit."
+            )
+            save_state(state)
 
         return state

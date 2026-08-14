@@ -56,7 +56,7 @@ class TestControllerStep:
         state = init_state("test-loop-003", tempfile.mkdtemp(), "Test goal")
 
         result = ctrl.run(state, max_steps=5)
-        assert result.run.status.value in ("completed", "paused")
+        assert result.run.status.value in ("completed", "paused", "interrupted")
         assert len(result.observations) > 0
 
     def test_finish_when_no_tasks(self):
@@ -217,3 +217,85 @@ def test_transient_retry_runs_attempt_two_before_new_planning(tmp_path):
     assert repro.calls == 2
     assert task.status == TaskStatus.completed
     assert [a.attempt_number for a in task.attempts] == [1, 2]
+
+
+def test_step_limit_is_persisted_as_interrupted(tmp_path):
+    from resagent.models import ActionName, RunStatus
+    from resagent.planner import PlannedAction
+
+    state = init_state("step-limit", str(tmp_path), "goal")
+    ctrl = Controller(
+        _FixedPlanner(PlannedAction(
+            ActionName.call_coding_agent, {"task_id": "missing"},
+        )),
+        ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True),
+        ReproAgentAdapter(mock=True),
+    )
+
+    result = ctrl.run(state, max_steps=2)
+
+    assert result.run.status == RunStatus.interrupted
+    assert "2-step" in result.current_summary
+
+
+def test_expagent_task_receives_all_dependency_artifacts(tmp_path):
+    from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
+    from resagent.planner import PlannedAction
+
+    class CapturingExpAgent:
+        def __init__(self):
+            self.task = None
+
+        def advise(self, state, layout, task=None):
+            self.task = task
+            return {
+                "artifact": Artifact(
+                    id="analysis", type=ArtifactType.scientific_decision,
+                    producer=Producer.ExpAgent, path="analysis.json",
+                ),
+                "tasks": [],
+                "raw": {"summary": "comparison complete"},
+            }
+
+    state = init_state("fan-in-dispatch", str(tmp_path), "compare two runs")
+    run_root = tmp_path / state.run.run_id
+    artifacts = []
+    dependencies = []
+    for number in (1, 2):
+        path = run_root / f"result_{number}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"accuracy=0.{number + 7}", encoding="utf-8")
+        artifact = Artifact(
+            id=f"result_{number}", type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path=str(path.relative_to(run_root)),
+        )
+        dependency = AgentTask(
+            id=f"task_{number:03d}", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task, status=TaskStatus.completed,
+            artifacts=[artifact.id],
+        )
+        artifacts.append(artifact)
+        dependencies.append(dependency)
+    analysis = AgentTask(
+        id="task_003", agent=Producer.ExpAgent, kind=AgentKind.advise,
+        input={"task_goal": "compare accuracy"},
+        depends_on=[task.id for task in dependencies],
+    )
+    state.artifacts.extend(artifacts)
+    state.tasks.extend([*dependencies, analysis])
+    expagent = CapturingExpAgent()
+    controller = Controller(
+        _FixedPlanner(PlannedAction(
+            ActionName.call_exp_agent, {"task_id": analysis.id},
+        )),
+        expagent, CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+    )
+
+    observation = controller.step(state)
+
+    assert observation.result == "ok"
+    assert analysis.status == TaskStatus.completed
+    assert [item["artifact_id"] for item in expagent.task.input["input_artifacts"]] == [
+        "result_1", "result_2",
+    ]

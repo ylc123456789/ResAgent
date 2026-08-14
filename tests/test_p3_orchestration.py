@@ -18,6 +18,7 @@ from resagent.models import (
 from resagent.planner import PlannedAction
 from resagent.resources import (
     materialize_task_bindings,
+    materialize_dependency_artifacts,
     register_task_resources,
     resume_repaired_tasks,
     schedule_coding_repair,
@@ -307,6 +308,40 @@ class BlockingRepro:
         }
 
 
+class WarningRepro:
+    def execute(self, task, _layout, attempt_number=1):
+        return {
+            "artifact": Artifact(
+                id="repro_warning", type=ArtifactType.repro_result,
+                producer=Producer.ReproAgent, path="result.md",
+            ),
+            "outcome": "completed_with_warnings",
+            "raw": {"summary": "metrics recovered; one optional plot is missing"},
+        }
+
+
+def test_completed_with_warnings_is_not_stored_as_an_error(tmp_path):
+    state = init_state("warning", str(tmp_path), "run")
+    task = AgentTask(
+        id="task_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, input={"experiment_goal": "run"},
+    )
+    state.tasks.append(task)
+    controller = Controller(
+        planner=ScriptedPlanner([
+            PlannedAction(ActionName.call_repro_agent, {"task_id": task.id}),
+        ]),
+        expagent=ExpAgentAdapter(mock=True),
+        codingagent=CodingAgentAdapter(mock=True),
+        reproagent=WarningRepro(),
+    )
+
+    assert controller.step(state).result == "ok"
+    assert task.status == TaskStatus.completed
+    assert task.error == ""
+    assert task.warnings == ["metrics recovered; one optional plot is missing"]
+
+
 def test_blocked_operator_routes_repair_and_resumes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -369,3 +404,50 @@ def test_operator_repair_routing_is_bounded(tmp_path):
     assert schedule_coding_repair(
         state, repro, ["fix again"], str(tmp_path / "repo"),
     ) is None
+
+
+def test_multiple_dependency_artifacts_are_bound_with_actual_paths(tmp_path):
+    state = init_state("fan-in", str(tmp_path), "compare experiments")
+    run_root = tmp_path / "fan-in"
+    first_path = run_root / "tasks" / "first" / "result.md"
+    second_path = run_root / "tasks" / "second" / "result.md"
+    first_path.parent.mkdir(parents=True)
+    second_path.parent.mkdir(parents=True)
+    first_path.write_text("accuracy=0.8", encoding="utf-8")
+    second_path.write_text("accuracy=0.9", encoding="utf-8")
+    first = AgentTask(
+        id="task_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, status=TaskStatus.completed,
+        artifacts=["result_1"],
+    )
+    second = AgentTask(
+        id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, status=TaskStatus.completed,
+        artifacts=["result_2"],
+    )
+    analysis = AgentTask(
+        id="task_003", agent=Producer.ExpAgent, kind=AgentKind.advise,
+        depends_on=[first.id, second.id],
+    )
+    state.tasks.extend([first, second, analysis])
+    state.artifacts.extend([
+        Artifact(
+            id="result_1", type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path=str(first_path.relative_to(run_root)), summary="first",
+        ),
+        Artifact(
+            id="result_2", type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path=str(second_path.relative_to(run_root)), summary="second",
+        ),
+    ])
+
+    bindings = materialize_dependency_artifacts(state, analysis)
+
+    assert [item["producer_task_id"] for item in bindings] == [
+        "task_001", "task_002",
+    ]
+    assert [item["path"] for item in bindings] == [
+        str(first_path.resolve()), str(second_path.resolve()),
+    ]

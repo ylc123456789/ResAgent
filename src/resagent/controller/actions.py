@@ -13,6 +13,7 @@ from ..policies.retry import RetryPolicy, classify_transient
 from .contracts import dependencies_satisfied, validate_finish
 from ..persistence.workspace import WorkspaceLayout
 from ..resources import (
+    materialize_dependency_artifacts,
     materialize_task_bindings,
     register_task_resources,
     resume_repaired_tasks,
@@ -61,8 +62,9 @@ class ControllerActions:
                 attempt_number=len(task.attempts) + 1,
                 started_at=datetime.now(timezone.utc),
             ))
+            materialize_dependency_artifacts(state, task)
 
-        result = self.expagent.advise(state, layout)
+        result = self.expagent.advise(state, layout, task=task)
         artifact = result["artifact"]
         state.artifacts.append(artifact)
         for spawned in result.get("tasks", []):
@@ -112,6 +114,7 @@ class ControllerActions:
             outcome = result.get("outcome", "completed")
             if outcome in {"completed", "completed_with_warnings"}:
                 task.status = TaskStatus.completed
+                task.error = ""
             elif outcome == "blocked":
                 task.status = TaskStatus.blocked
             elif outcome == "needs_user_input":
@@ -119,6 +122,10 @@ class ControllerActions:
             else:
                 task.status = TaskStatus.failed
                 self._schedule_retry(state, task, str(result["raw"].get("summary", "CodingAgent failed")))
+            if outcome == "completed_with_warnings":
+                task.warnings.append(
+                    str(result["raw"].get("summary", "Completed with warnings"))[:2000]
+                )
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task.attempts[-1].artifacts.append(result["artifact"].id)
             state.budget.tasks_run += 1
@@ -172,10 +179,14 @@ class ControllerActions:
             outcome = result.get("outcome", result.get("returncode") == 0 and "completed" or "failed")
             if outcome == "completed":
                 task.status = TaskStatus.completed
+                task.error = ""
                 obs_result = "ok"
             elif outcome == "completed_with_warnings":
                 task.status = TaskStatus.completed
-                task.error = result["raw"].get("summary", "")[:200]
+                task.error = ""
+                task.warnings.append(
+                    str(result["raw"].get("summary", "Completed with warnings"))[:2000]
+                )
                 obs_result = "ok"
             elif outcome == "blocked":
                 task.status = TaskStatus.blocked

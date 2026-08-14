@@ -38,6 +38,8 @@ def _write_execution_plan(state: ResearchState, ws: Path) -> None:
             lines.append(f"- Description: {t.input['description']}")
         if t.error:
             lines.append(f"- Error: {t.error}")
+        for warning in t.warnings:
+            lines.append(f"- Warning: {warning}")
         lines.append("")
 
     lines += [

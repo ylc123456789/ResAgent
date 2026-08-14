@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .models import AgentKind, AgentTask, Producer, ResearchState, ResourceRef, TaskStatus
 from .persistence.sessions import read_session_card
 from .persistence.workspace import WorkspaceLayout
@@ -16,6 +18,7 @@ def materialize_task_bindings(
     """Resolve logical project/dependency references immediately before dispatch."""
     if shared_workspace not in {"auto", "always", "never"}:
         raise ValueError(f"invalid shared_workspace policy: {shared_workspace}")
+    materialize_dependency_artifacts(state, task)
 
     repo = _repo_for_task(state, task)
     dependency_repo = _repo_from_direct_dependencies(state, task)
@@ -59,6 +62,35 @@ def materialize_task_bindings(
     task.input["allow_code_delegation"] = False
     if environment:
         task.input["env_name"] = environment.id
+
+
+def materialize_dependency_artifacts(
+    state: ResearchState, task: AgentTask,
+) -> list[dict[str, str]]:
+    """Bind immutable outputs from every direct dependency to ``task``."""
+    run_root = (Path(state.run.workspace_dir) / state.run.run_id).resolve()
+    bindings: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for dependency_id in task.depends_on:
+        dependency = state.find_task(dependency_id)
+        if dependency is None:
+            continue
+        for artifact_id in dependency.artifacts:
+            artifact = state.find_artifact(artifact_id)
+            if artifact is None or (dependency_id, artifact.id) in seen:
+                continue
+            seen.add((dependency_id, artifact.id))
+            path = Path(artifact.path)
+            absolute = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+            bindings.append({
+                "artifact_id": artifact.id,
+                "producer_task_id": dependency_id,
+                "type": artifact.type.value,
+                "path": str(absolute),
+                "summary": artifact.summary,
+            })
+    task.input["input_artifacts"] = bindings
+    return bindings
 
 
 def register_task_resources(

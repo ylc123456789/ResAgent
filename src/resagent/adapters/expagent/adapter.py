@@ -33,7 +33,7 @@ class ExpAgentAdapter:
         self.mock = mock
         self._imported = False
 
-    def advise(self, state, layout) -> dict:
+    def advise(self, state, layout, task: AgentTask | None = None) -> dict:
         """Call ExpAgent for scientific advice.
 
         Returns: {"artifact": Artifact, "tasks": list[AgentTask], "raw": dict}
@@ -44,7 +44,10 @@ class ExpAgentAdapter:
 
         layout.write_task_manifest(dec_dir, task_id=f"exp_decision_{dec_num:03d}",
                                    module="ExpAgent",
-                                   input_summary=state.current_summary or state.run.research_goal[:200])
+                                   input_summary=(
+                                       _task_goal(task) if task is not None
+                                       else state.current_summary or state.run.research_goal[:200]
+                                   ))
 
         if self.mock:
             raw = self._mock_advise(state)
@@ -58,7 +61,7 @@ class ExpAgentAdapter:
                                     "run_id": state.run.run_id,
                                     "task_id": f"exp_decision_{dec_num:03d}"})
         else:
-            ctx = self._build_advisor_context(state)
+            ctx = self._build_advisor_context(state, task)
             raw = self._call_advise(ctx, exp_run_dir)
 
         dec_dir.mkdir(parents=True, exist_ok=True)
@@ -178,20 +181,35 @@ class ExpAgentAdapter:
 
     # ── context building ─────────────────────────────────────────────────
 
-    def _build_advisor_context(self, state) -> "AdvisorContext":
+    def _build_advisor_context(
+        self, state, task: AgentTask | None = None,
+    ) -> "AdvisorContext":
         """Build a real ExpAgent AdvisorContext from ResAgent state."""
         self._ensure_import()
 
         from experiment_designer.models import AdvisorContext, ArtifactRef
 
-        situation = self._build_situation(state)
+        situation = self._build_situation(state, task)
 
         artifacts = []
-        for a in state.artifacts[-20:]:
+        bindings = task.input.get("input_artifacts", []) if task is not None else []
+        binding_by_id = {
+            str(item.get("artifact_id", "")): item
+            for item in bindings if isinstance(item, dict)
+        }
+        if binding_by_id:
+            source_artifacts = [
+                state.find_artifact(artifact_id) for artifact_id in binding_by_id
+            ]
+            source_artifacts = [item for item in source_artifacts if item is not None]
+        else:
+            source_artifacts = state.artifacts[-20:]
+        for a in source_artifacts:
+            binding = binding_by_id.get(a.id, {})
             artifacts.append(ArtifactRef(
                 id=a.id,
                 type=_map_artifact_type(a.type.value),
-                path=a.path,
+                path=binding.get("path", a.path),
                 summary=a.summary,
             ))
 
@@ -206,7 +224,7 @@ class ExpAgentAdapter:
             ctx_kwargs["parent_run"] = parent_run
         return AdvisorContext(**ctx_kwargs)
 
-    def _build_situation(self, state) -> str:
+    def _build_situation(self, state, task: AgentTask | None = None) -> str:
         """Build a rich situation string for ExpAgent.
 
         Includes research goal, current state, available repos/paths,
@@ -216,6 +234,13 @@ class ExpAgentAdapter:
 
         if state.current_summary:
             parts.append(f"Current Summary: {state.current_summary}")
+        if task is not None:
+            parts.append(f"Assigned Scientific Task: {_task_goal(task)}")
+            if task.input.get("input_artifacts"):
+                parts.append(
+                    "Use the attached dependency artifacts as the authoritative "
+                    "evidence for this task."
+                )
 
         repo_paths = set()
         for t in state.tasks:
@@ -334,6 +359,16 @@ class ExpAgentAdapter:
                 f"Set --expagent-path or EXPAGENT_PATH. Error: {e}"
             )
         self._imported = True
+
+
+def _task_goal(task: AgentTask) -> str:
+    """Return the user-facing objective for one delegated advisory task."""
+    return str(
+        task.input.get("task_goal")
+        or task.input.get("description")
+        or task.input.get("experiment_goal")
+        or task.capability
+    )
 
 
 def _clamp_artifact_ref_type(t: str) -> str:

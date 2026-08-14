@@ -102,6 +102,9 @@ def build_expagent_context(state: ResearchState) -> dict:
 
 def build_codingagent_context(task: AgentTask) -> dict:
     """Extract CodeTaskSpec-like dict from an AgentTask."""
+    task_goal = _goal_with_dependency_artifacts(
+        task.input.get("task_goal", ""), task.input.get("input_artifacts", []),
+    )
     def _as_list(v):
         if v is None:
             return []
@@ -114,7 +117,7 @@ def build_codingagent_context(task: AgentTask) -> dict:
     return {
         "workspace_path": task.input.get("workspace_path")
                        or task.input.get("repo_path", ""),
-        "task_goal": task.input.get("task_goal", ""),
+        "task_goal": task_goal,
         "constraints": _as_list(task.input.get("constraints", [])),
         "verify_commands": _as_list(task.input.get("verify_commands", [])),
         "allowed_paths": _as_list(task.input.get("allowed_paths", [])),
@@ -128,6 +131,9 @@ def build_codingagent_context(task: AgentTask) -> dict:
 
 def build_reproagent_context(task: AgentTask) -> dict:
     """Extract ReproTask-like dict from an AgentTask."""
+    experiment_goal = _goal_with_dependency_artifacts(
+        task.input.get("experiment_goal", ""), task.input.get("input_artifacts", []),
+    )
     return {
         "paper_url": task.input.get("paper_url", ""),
         "repo_url": task.input.get("repo_url", ""),
@@ -136,7 +142,7 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "setup_only": bool(task.input.get("setup_only", False)),
         "allow_code_delegation": bool(task.input.get("allow_code_delegation", False)),
         "env_name": task.input.get("env_name", ""),
-        "experiment_goal": task.input.get("experiment_goal", ""),
+        "experiment_goal": experiment_goal,
         "workspace_dir": task.input.get("workspace_dir", ""),
         "api_base": task.input.get("api_base", ""),
         "api_key_env": task.input.get("api_key_env", ""),
@@ -146,6 +152,26 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "codingagent_path": task.input.get("codingagent_path", ""),
         "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
     }
+
+
+def _goal_with_dependency_artifacts(goal: str, artifacts: list[dict]) -> str:
+    """Append authoritative dependency outputs without guessing filenames."""
+    if not artifacts:
+        return goal
+    lines = [
+        goal.rstrip(),
+        "",
+        "## Dependency artifacts",
+        "These are authoritative outputs from completed prerequisite tasks. "
+        "Use their actual paths; do not infer output directories from the plan.",
+    ]
+    for item in artifacts:
+        lines.append(
+            f"- task={item.get('producer_task_id', '')} "
+            f"artifact={item.get('artifact_id', '')} "
+            f"type={item.get('type', '')} path={item.get('path', '')}"
+        )
+    return "\n".join(lines)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -175,6 +201,10 @@ def _format_tasks(tasks: list[AgentTask]) -> str:
             lines.append(f"    workspace_path: {inp['workspace_path'][:100]}")
         if inp.get("task_goal"):
             lines.append(f"    task_goal: {inp['task_goal'][:120]}")
+        if inp.get("input_artifacts"):
+            lines.append(
+                f"    input_artifacts: {len(inp['input_artifacts'])} dependency output(s)"
+            )
     return "\n".join(lines)
 
 
