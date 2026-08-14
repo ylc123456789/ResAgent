@@ -4,6 +4,11 @@
 > The module test suite passes (`158 passed`), but the three integration gaps
 > below must be fixed before P4 cloud acceptance.
 
+> Review update: commit `8fcc195` fixes the originally reported prefix,
+> audit-staleness, evidence-priority, and inline-Python cases, and its suite
+> passes (`158 passed`). A remaining compound-shell policy gap described in
+> Finding E still blocks cloud acceptance.
+
 ## Remaining review findings
 
 ### A. Absolute Conda prefixes are resolved but executed/audited as names
@@ -49,6 +54,41 @@ and package repair operations, and reject arbitrary inline programs. Add a
 test showing that `python -c` containing training/file mutation is blocked
 before audit while the exact audit probe remains available through
 `audit_env`.
+
+### E. Compound shell commands bypass both setup policy and audit invalidation
+
+The current policy examines only the beginning/first word of the entire shell
+string. Confirmed examples in commit `8fcc195`:
+
+| Command | setup/pre-audit allowed | invalidates audit |
+|---|---:|---:|
+| `echo ok && python train.py` | yes | no |
+| `pip install x && python train.py` | yes | yes, but training still runs |
+| `echo ok && pip install x` | yes | no |
+| `conda env update -f environment.yml` | no | no |
+
+The unconditional `--help` substring check has the same structural problem:
+an otherwise unsafe compound command can include `--help` and be accepted.
+
+Do not grow another beginning-of-string regex. For setup/pre-audit execution,
+either reject shell control operators (`&&`, `||`, `;`, pipelines, command
+substitution, and newlines) and require one command per list item, or parse the
+shell into commands and validate every segment with a proven parser. The first
+option is preferred for this MVP because `run_commands` already accepts a list.
+
+Environment mutation detection must use the same normalized single-command
+representation and cover every package-management command that the setup
+policy permits, including at least `pip`, `python -m pip`, `conda install`, and
+`conda env update`. If the project chooses to permit `mamba`, `micromamba`,
+`uv pip`, or Poetry, those must invalidate certification too.
+
+Acceptance tests must prove:
+
+1. each compound-command example above is rejected before execution;
+2. `command --help && python train.py` is rejected;
+3. each allowed dependency mutation clears a successful audit;
+4. normal one-command inspection and installation operations still work;
+5. an experiment command remains blocked until a fresh audit succeeds.
 
 ## Scope
 
