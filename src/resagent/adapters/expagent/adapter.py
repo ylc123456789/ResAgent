@@ -132,7 +132,7 @@ class ExpAgentAdapter:
 
         self._ensure_import()
         from experiment_designer.models import AdvisorContext, ArtifactRef
-        from experiment_designer.advisor import advise
+        from experiment_designer.agent import advise
 
         refs = []
         for i, a in enumerate(artifacts):
@@ -272,7 +272,7 @@ class ExpAgentAdapter:
 
     def _call_advise(self, ctx, run_dir: Path) -> dict:
         self._ensure_import()
-        from experiment_designer.advisor import advise
+        from experiment_designer.agent import advise
 
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -356,7 +356,7 @@ class ExpAgentAdapter:
             if p and p not in sys.path:
                 sys.path.insert(0, p)
         try:
-            import experiment_designer.advisor  # noqa: F401
+            import experiment_designer.agent  # noqa: F401
             import experiment_designer.models  # noqa: F401
         except ImportError as e:
             raise RuntimeError(
