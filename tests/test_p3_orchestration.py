@@ -20,7 +20,6 @@ from resagent.resources import (
     materialize_task_bindings,
     materialize_dependency_artifacts,
     register_task_resources,
-    resume_repaired_tasks,
     schedule_coding_repair,
 )
 from resagent.state import init_state
@@ -294,8 +293,22 @@ def test_current_session_bindings_register_resources(tmp_path):
     assert state.resources[1].repo == "project"
 
 
-class BlockingRepro:
+class RepairableRepro:
+    def __init__(self):
+        self.calls = 0
+
     def execute(self, task, _layout, attempt_number=1):
+        self.calls += 1
+        if self.calls > 1:
+            return {
+                "artifact": Artifact(
+                    id="repro_retried", type=ArtifactType.repro_result,
+                    producer=Producer.ReproAgent, path="result.md",
+                ),
+                "outcome": "completed",
+                "raw": {"summary": "experiment completed after repair"},
+                "workspace_path": task.input.get("external_repo_path", ""),
+            }
         return {
             "artifact": Artifact(
                 id="repro", type=ArtifactType.repro_result,
@@ -303,7 +316,7 @@ class BlockingRepro:
             ),
             "outcome": "blocked",
             "raw": {"summary": "needs instrumentation"},
-            "workspace_path": task.input["external_repo_path"],
+            "workspace_path": task.input.get("external_repo_path", ""),
             "coding_issues": ["add loss logging"],
         }
 
@@ -361,19 +374,24 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
         input={"experiment_goal": "run", "workspace_intent": "shared"},
     )
     state.tasks.append(repro)
+    operator = RepairableRepro()
     controller = Controller(
         planner=ScriptedPlanner([
+            PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
+            PlannedAction(ActionName.call_coding_agent, {"task_id": "task_002"}),
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
         ]),
         expagent=ExpAgentAdapter(mock=True),
         codingagent=CodingAgentAdapter(mock=True),
-        reproagent=BlockingRepro(),
+        reproagent=operator,
     )
 
-    observation = controller.step(state)
+    blocked_observation = controller.step(state)
     repair = state.tasks[-1]
 
-    assert observation.result == "error"
+    assert blocked_observation.result == "ok"
+    assert "scheduled CodingAgent repair task_002" in blocked_observation.detail
+    assert blocked_observation.task_ids == [repro.id, repair.id]
     assert repro.status == TaskStatus.blocked
     assert repair.agent == Producer.CodingAgent
     assert repair.input["workspace_path"] == str(repo)
@@ -381,9 +399,41 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
     assert repair.input["env_name"] == "env-repair"
     assert repro.depends_on == [repair.id]
 
-    repair.status = TaskStatus.completed
-    resume_repaired_tasks(state, repair)
+    repair_observation = controller.step(state)
+    assert repair_observation.result == "ok"
+    assert repair.status == TaskStatus.completed
     assert repro.status == TaskStatus.pending
+    assert "_repair_task_id" not in repro.input
+
+    retry_observation = controller.step(state)
+    assert retry_observation.result == "ok"
+    assert repro.status == TaskStatus.completed
+    assert len(repro.attempts) == 2
+    assert operator.calls == 2
+
+
+def test_blocked_operator_without_repair_context_remains_error(tmp_path):
+    """A blocker is still fatal when no repo/environment can host a repair."""
+    state = init_state("unroutable-repair", str(tmp_path), "run")
+    repro = AgentTask(
+        id="task_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, input={"experiment_goal": "run"},
+    )
+    state.tasks.append(repro)
+    controller = Controller(
+        planner=ScriptedPlanner([
+            PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
+        ]),
+        expagent=ExpAgentAdapter(mock=True),
+        codingagent=CodingAgentAdapter(mock=True),
+        reproagent=RepairableRepro(),
+    )
+
+    observation = controller.step(state)
+
+    assert observation.result == "error"
+    assert repro.status == TaskStatus.blocked
+    assert len(state.tasks) == 1
 
 
 def test_operator_repair_routing_is_bounded(tmp_path):

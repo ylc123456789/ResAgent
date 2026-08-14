@@ -208,16 +208,27 @@ class ControllerActions:
                 materialized_workspace,
             )
             spawned = None
+            detail = result["raw"].get("summary", "")
             if task.status == TaskStatus.blocked:
                 spawned = schedule_coding_repair(
                     state, task, result.get("coding_issues", []),
                     materialized_workspace,
                 )
+                if spawned is not None:
+                    # The ReproAgent action was handled successfully: its
+                    # structured blocker has become a runnable CodingAgent
+                    # task. Keep the operator blocked until that repair
+                    # completes, but do not report an orchestration failure.
+                    obs_result = "ok"
+                    detail = (
+                        f"ReproAgent requested code changes; scheduled "
+                        f"CodingAgent repair {spawned.id}.\n{detail}"
+                    )
 
             return Observation(
                 action=ActionName.call_repro_agent,
                 result=obs_result,
-                detail=result["raw"].get("summary", ""),
+                detail=detail,
                 artifact_ids=[result["artifact"].id],
                 task_ids=[task.id] + ([spawned.id] if spawned else []),
             )
