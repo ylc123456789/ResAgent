@@ -45,4 +45,26 @@ def dependency_graph_issues(actions: list[dict]) -> list[str]:
 
     if any(visit(node) for node in graph if node not in visited):
         issues.append("recommended action dependency graph contains a cycle")
+
+    # Requirement flows backward along hard dependencies: every dependency of
+    # a REQUIRED action must itself be required. A required action depending
+    # on an optional one is a scheduler trap — the "optional" dependency is
+    # forced to execute (or the required dependent can never run).
+    required_by_id = {
+        str(action.get("action_id", "")).strip(): bool(action.get("required", True))
+        for action in actions
+        if str(action.get("action_id", "")).strip()
+    }
+    for action in actions:
+        action_id = str(action.get("action_id", "")).strip()
+        if not bool(action.get("required", True)):
+            continue
+        for dependency in (str(value).strip() for value in action.get("depends_on", [])):
+            if dependency in required_by_id and not required_by_id[dependency]:
+                issues.append(
+                    f"required action '{action_id}' depends on optional action "
+                    f"'{dependency}' — a required action's dependencies must all "
+                    f"be required (require the whole chain, or mark this action "
+                    f"optional)"
+                )
     return issues

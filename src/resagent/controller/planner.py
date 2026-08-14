@@ -25,8 +25,18 @@ class PlannedAction:
     analysis: str = ""
 
 
+class PlannerError(RuntimeError):
+    """The controller's LLM produced no usable action after bounded retries."""
+
+
 class Planner:
     """Calls an LLM to decide the next orchestration action."""
+
+    # LLM gateways are unreliable components: empty responses and transient
+    # 5xx are normal. A single bad response must never kill a long run —
+    # every controller LLM call gets bounded retries, then fails closed via
+    # PlannerError (the loop turns that into a resumable interruption).
+    MAX_LLM_ATTEMPTS = 3
 
     def __init__(
         self,
@@ -49,8 +59,21 @@ class Planner:
         if self.mock:
             return self._mock_choose(state, context)
 
-        raw = self._call_llm(context)
-        return self._parse_response(raw)
+        import time
+
+        last_error: Exception | None = None
+        for attempt in range(1, self.MAX_LLM_ATTEMPTS + 1):
+            try:
+                raw = self._call_llm(context)
+                return self._parse_response(raw)
+            except Exception as exc:
+                last_error = exc
+                if attempt < self.MAX_LLM_ATTEMPTS:
+                    time.sleep(min(2 ** attempt, 8))
+        raise PlannerError(
+            f"controller LLM produced no usable action after "
+            f"{self.MAX_LLM_ATTEMPTS} attempts: {last_error}"
+        ) from last_error
 
     def classify_failure(self, task_id: str, error_message: str) -> dict:
         """Classify a task failure. Returns category dict."""
@@ -68,13 +91,13 @@ class Planner:
                 "recommended_action": "investigate",
             }
 
-        raw = self._call_llm_raw(FAILURE_CLASSIFIER, prompt)
         try:
+            raw = self._call_llm_raw(FAILURE_CLASSIFIER, prompt)
             return _extract_json(raw)
         except Exception:
             return {
                 "category": "unknown", "confidence": "low",
-                "explanation": "could not parse LLM response",
+                "explanation": "classifier LLM call or parse failed",
                 "recommended_action": "investigate",
             }
 
@@ -121,7 +144,10 @@ class Planner:
         )
         resp.raise_for_status()
         body = resp.json()
-        return body["choices"][0]["message"]["content"]
+        content = body["choices"][0]["message"]["content"]
+        if not content or not content.strip():
+            raise ValueError("empty LLM response (transient gateway behavior)")
+        return content
 
     def _parse_response(self, raw: str) -> PlannedAction:
         """Parse LLM JSON response into a PlannedAction."""

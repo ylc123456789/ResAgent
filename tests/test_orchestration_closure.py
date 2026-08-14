@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
@@ -12,7 +13,7 @@ from resagent.models import (
     ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Producer,
     RunStatus, TaskPriority, TaskStatus,
 )
-from resagent.controller.planner import PlannedAction, Planner
+from resagent.controller.planner import PlannedAction, Planner, PlannerError
 from resagent.persistence.state import init_state, load_state, save_state, submit_user_response
 from resagent.persistence.workspace import WorkspaceLayout
 from resagent.controller.contracts import allowed_action_candidates
@@ -441,6 +442,86 @@ def test_artifact_numbering_is_stable_after_replacement(tmp_path):
     ))
     assert len(state.artifacts) == 2
     assert state.next_artifact_number() == 3
+
+
+def test_required_action_cannot_depend_on_optional():
+    """Ingest rejects the scheduler trap: required depending on optional.
+
+    Requirement flows backward along hard dependencies — an optional chain
+    stays optional end-to-end, a required chain is required end-to-end.
+    """
+    from resagent.adapters.expagent.dependency_graph import dependency_graph_issues
+
+    trap = [
+        {"action_id": "exp", "capability": "execute_experiment",
+         "required": False, "depends_on": []},
+        {"action_id": "ana", "capability": "analyze_results",
+         "required": True, "depends_on": ["exp"]},
+    ]
+    issues = dependency_graph_issues(trap)
+    assert any("required" in i and "optional" in i for i in issues), issues
+
+    for exp_required, ana_required in [(True, True), (False, False)]:
+        chain = [
+            {"action_id": "exp", "capability": "execute_experiment",
+             "required": exp_required, "depends_on": []},
+            {"action_id": "ana", "capability": "analyze_results",
+             "required": ana_required, "depends_on": ["exp"]},
+        ]
+        assert dependency_graph_issues(chain) == []
+
+
+def test_planner_retries_transient_llm_failures(tmp_path, monkeypatch):
+    """A transient empty/unparseable LLM response is retried, not fatal."""
+    planner = Planner(mock=False)
+    calls = {"n": 0}
+    good = '{"analysis": "a", "action": "finish", "params": {}, "reason": "done"}'
+
+    def flaky(context):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ValueError("empty LLM response (transient gateway behavior)")
+        return good
+
+    monkeypatch.setattr(planner, "_call_llm", flaky)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    state = init_state("planner-retry", str(tmp_path), "goal")
+
+    action = planner.choose_action(state)
+    assert action.action == ActionName.finish
+    assert calls["n"] == 3
+
+
+def test_planner_fails_closed_after_retry_exhaustion(tmp_path, monkeypatch):
+    """Persistent LLM outage raises PlannerError (controlled, not a raw crash)."""
+    planner = Planner(mock=False)
+    monkeypatch.setattr(
+        planner, "_call_llm",
+        lambda _ctx: (_ for _ in ()).throw(ValueError("empty LLM response")),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    state = init_state("planner-outage", str(tmp_path), "goal")
+
+    with pytest.raises(PlannerError):
+        planner.choose_action(state)
+
+
+def test_planner_outage_interrupts_run_without_traceback(tmp_path):
+    """The loop turns PlannerError into a resumable interruption, not a crash."""
+    class OutagePlanner:
+        def choose_action(self, state):
+            raise PlannerError("controller LLM unavailable after retries")
+
+        def classify_failure(self, task_id, error):
+            return {"category": "unknown"}
+
+    state = init_state("outage-run", str(tmp_path), "goal")
+    ctrl = _controller(OutagePlanner())
+
+    result = ctrl.run(state, max_steps=3)
+
+    assert result.run.status == RunStatus.interrupted
+    assert "controller LLM" in result.current_summary
 
 
 def test_p4_scenario_is_repro_then_expagent_then_finish(tmp_path):

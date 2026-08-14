@@ -7,7 +7,7 @@ records observations, and repeats until finish, max_steps, or user_response_requ
 from __future__ import annotations
 
 from ..models import ResearchState, DecisionRecord, Observation, ActionName, RunStatus
-from .planner import Planner, PlannedAction
+from .planner import Planner, PlannerError, PlannedAction
 from .actions import ControllerActions
 from ..adapters.expagent import ExpAgentAdapter
 from ..adapters.codingagent import CodingAgentAdapter
@@ -56,7 +56,18 @@ class Controller(ControllerActions):
             state.run.status = RunStatus.paused
             return observation
 
-        planned = self._next_retry_action(state) or self.planner.choose_action(state)
+        try:
+            planned = self._next_retry_action(state) or self.planner.choose_action(state)
+        except PlannerError:
+            # Controlled, resumable stop — never let a transient LLM outage
+            # kill a long run with an unhandled traceback.
+            state.run.status = RunStatus.interrupted
+            state.current_summary = (
+                "Run interrupted: the controller LLM produced no usable "
+                "action after retries. Resume to continue."
+            )
+            save_state(state)
+            raise
         dec_id = f"decision_{state.next_decision_number():03d}"
         state.decisions.append(DecisionRecord(
             id=dec_id,
@@ -81,7 +92,11 @@ class Controller(ControllerActions):
             state.run.status = RunStatus.running
         stopped = False
         for _ in range(max_steps):
-            obs = self.step(state)
+            try:
+                obs = self.step(state)
+            except PlannerError:
+                save_state(state)
+                return state
             save_state(state)
 
             if obs.action == ActionName.finish and obs.result in {"ok", "terminal"}:
