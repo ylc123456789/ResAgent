@@ -18,8 +18,8 @@ from resagent.models import (
     RunStatus, TaskStatus,
 )
 from resagent.orchestrator import build_controller, init_run
-from resagent.planner import PlannedAction
-from resagent.state import save_state
+from resagent.controller.planner import PlannedAction
+from resagent.persistence.state import save_state
 
 
 class SequencePlanner:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import yaml
 
-from resagent.chat_models import ConversationState
-from resagent.session_cards import (
+from resagent.conversation.models import ConversationState
+from resagent.persistence.sessions import (
     card_to_session_ref,
     read_session_card,
     scan_session_cards,

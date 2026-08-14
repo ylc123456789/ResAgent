@@ -8,7 +8,7 @@ import pytest
 from resagent.models import (
     ResearchRun, ResearchState, Artifact, ArtifactType, Producer,
 )
-from resagent.state import (
+from resagent.persistence.state import (
     init_state, save_state, load_state, state_path, workspace_path,
 )
 

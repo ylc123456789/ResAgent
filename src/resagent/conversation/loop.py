@@ -23,8 +23,8 @@ from .history import (
     read_events,
 )
 from ..llm import call_chat
-from ..planner import _extract_json
-from ..prompts import CHAT_SYSTEM
+from ..controller.planner import _extract_json
+from ..controller.prompts import CHAT_SYSTEM
 
 RECENT_EVENT_WINDOW = 12
 OLDER_EVENT_WINDOW = 28  # deterministic fold of older events (no LLM compression in v1)

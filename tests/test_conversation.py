@@ -2,7 +2,7 @@
 
 import os
 
-from resagent.chat_models import ConversationEventType, ConversationState
+from resagent.conversation.models import ConversationEventType, ConversationState
 from resagent.conversation import (
     append_event,
     conversation_dir,

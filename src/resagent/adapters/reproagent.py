@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ..models import Artifact, ArtifactType, Producer, AgentTask
 from ..context import build_reproagent_context
-from ..workspace_layout import WorkspaceLayout
+from ..persistence.workspace import WorkspaceLayout
 
 
 def _collect_coding_issues(result_state) -> list[str]:
@@ -75,7 +75,7 @@ class ReproAgentAdapter:
                 f"# Mock Reproduction Result\n\n{raw['summary']}\n",
                 encoding="utf-8",
             )
-            from ..session_cards import write_mock_card
+            from ..persistence.sessions import write_mock_card
             write_mock_card(repro_ws / "session.yaml", module="reproagent",
                             session_id=f"repro-mock-{task_num}",
                             summary=raw.get("summary", "")[:100],

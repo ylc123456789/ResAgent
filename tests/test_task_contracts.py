@@ -10,7 +10,7 @@ from resagent.models import (
     ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Observation,
     Producer, ResearchRun, ResearchState, RunStatus, TaskStatus,
 )
-from resagent.task_contracts import (
+from resagent.controller.contracts import (
     allowed_action_candidates, analysis_coverage, ensure_analysis_coverage,
     resolve_action, task_fingerprint, validate_finish,
 )

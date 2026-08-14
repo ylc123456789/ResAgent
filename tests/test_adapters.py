@@ -12,7 +12,7 @@ from resagent.models import (
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
-from resagent.workspace_layout import WorkspaceLayout
+from resagent.persistence.workspace import WorkspaceLayout
 
 
 def _make_state():

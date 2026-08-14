@@ -13,7 +13,7 @@ import os
 import re
 
 from ...models import AgentTask, Producer, TaskPriority
-from ...task_contracts import resolve_action, task_fingerprint
+from ...controller.contracts import resolve_action, task_fingerprint
 from ...capabilities import CapabilityError
 from .dependency_graph import dependency_graph_issues
 

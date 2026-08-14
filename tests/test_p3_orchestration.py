@@ -17,7 +17,7 @@ from resagent.models import (
     ResourceRef,
     TaskStatus,
 )
-from resagent.planner import PlannedAction
+from resagent.controller.planner import PlannedAction
 from resagent.resources import (
     materialize_task_bindings,
     materialize_dependency_artifacts,
@@ -25,8 +25,8 @@ from resagent.resources import (
     resolve_artifact_path,
     schedule_coding_repair,
 )
-from resagent.state import init_state
-from resagent.workspace_layout import WorkspaceLayout
+from resagent.persistence.state import init_state
+from resagent.persistence.workspace import WorkspaceLayout
 
 
 class ScriptedPlanner:

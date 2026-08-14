@@ -4,9 +4,9 @@ sys.path.insert(0, "/root/autodl-tmp/projects/ResAgent/src")
 
 from resagent.config import load_config, Config
 from resagent.orchestrator import init_run, build_controller, resume_run
-from resagent.state import save_state, load_state, submit_user_response
+from resagent.persistence.state import save_state, load_state, submit_user_response
 from resagent.models import ActionName, Producer, AgentKind
-from resagent.workspace_layout import WorkspaceLayout
+from resagent.persistence.workspace import WorkspaceLayout
 
 PASSED = 0; FAILED = 0
 WORKSPACE_ROOT = "/root/autodl-tmp/resagent-workspace"

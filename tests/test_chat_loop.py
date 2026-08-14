@@ -9,9 +9,9 @@ from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.capabilities import CapabilityRegistry
-from resagent.chat import ChatLoop, handle_slash
-from resagent.chat_models import ConversationEventType
-from resagent.chat_tools import ChatTools
+from resagent.conversation.loop import ChatLoop, handle_slash
+from resagent.conversation.models import ConversationEventType
+from resagent.conversation.tools import ChatTools
 from resagent.config import Config
 from resagent.conversation import (
     load_conversation,
@@ -20,7 +20,7 @@ from resagent.conversation import (
     rebuild_from_events,
 )
 from resagent.orchestrator import build_controller, init_run
-from resagent.state import load_state
+from resagent.persistence.state import load_state
 
 
 def tc(tool, params=None, reason=""):
@@ -265,7 +265,7 @@ def test_slash_commands(stack):
 
 
 def test_slash_new_and_quit(stack):
-    from resagent.chat import _NEW, _QUIT
+    from resagent.conversation.loop import _NEW, _QUIT
     _, _, tools, conv = stack
     assert handle_slash(conv, "/new", tools) == _NEW
     assert handle_slash(conv, "/quit", tools) == _QUIT

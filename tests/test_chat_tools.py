@@ -9,13 +9,13 @@ from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.capabilities import CapabilityRegistry
-from resagent.chat_models import ConversationEventType
-from resagent.chat_tools import ChatTools
+from resagent.conversation.models import ConversationEventType
+from resagent.conversation.tools import ChatTools
 from resagent.config import Config
 from resagent.context import build_controller_context
 from resagent.conversation import new_conversation
 from resagent.orchestrator import build_controller, init_run
-from resagent.state import load_state
+from resagent.persistence.state import load_state
 
 
 def _configure_module_cards(cfg):
@@ -243,7 +243,7 @@ def test_start_run_indexes_subsessions(stack):
 def test_list_sessions(stack):
     cfg, _, tools, conv = stack
     state = init_run(goal="g", workspace_root=conv.workspace_root, config=cfg)
-    from resagent.session_cards import write_mock_card
+    from resagent.persistence.sessions import write_mock_card
     ws = Path(conv.workspace_root) / state.run.run_id / "tasks" / "reproagent" / "task_001"
     write_mock_card(ws / "session.yaml", module="reproagent",
                     session_id="repro-1", summary="MNIST 99%")
@@ -257,7 +257,7 @@ def _seed_session(conv, module="reproagent", session_id="repro-1"):
     ws = Path(conv.workspace_root) / "res-x" / "task_ws"
     ws.mkdir(parents=True)
     (ws / "state.json").write_text("{}", encoding="utf-8")
-    from resagent.session_cards import write_mock_card
+    from resagent.persistence.sessions import write_mock_card
     write_mock_card(ws / "session.yaml", module=module, session_id=session_id)
     conv.apply_patch({"add_sessions": [{
         "module": module, "session_id": session_id,
@@ -300,7 +300,7 @@ def test_resume_subsession_containment(stack):
     _, _, tools, conv = stack
     outside = Path(conv.workspace_root).parent / "outside_ws"
     outside.mkdir(exist_ok=True)
-    from resagent.session_cards import write_mock_card
+    from resagent.persistence.sessions import write_mock_card
     write_mock_card(outside / "session.yaml", module="reproagent", session_id="evil")
     out = tools.execute(conv, "resume_subsession", {
         "manifest_path": str(outside / "session.yaml"), "instruction": "继续",

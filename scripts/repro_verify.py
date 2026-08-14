@@ -2,7 +2,7 @@ import sys, os, json, time, glob
 sys.path.insert(0, "/root/autodl-tmp/projects/ResAgent/src")
 from resagent.config import Config, load_config
 from resagent.orchestrator import init_run, build_controller
-from resagent.state import save_state
+from resagent.persistence.state import save_state
 from resagent.models import ActionName
 
 cfg = load_config("/root/autodl-tmp/projects/ResAgent/config.yaml")

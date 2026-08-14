@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..models import Artifact, ArtifactType, Producer, AgentTask
 from ..context import build_codingagent_context
-from ..workspace_layout import WorkspaceLayout
+from ..persistence.workspace import WorkspaceLayout
 
 
 class CodingAgentAdapter:
@@ -51,7 +51,7 @@ class CodingAgentAdapter:
                 f"# Mock CodingAgent Report\n\n{raw['summary']}\n",
                 encoding="utf-8",
             )
-            from ..session_cards import write_mock_card
+            from ..persistence.sessions import write_mock_card
             write_mock_card(out_dir / "session.yaml", module="codingagent",
                             session_id=f"code-mock-{task_num}",
                             summary=raw.get("summary", "")[:100],
@@ -115,7 +115,7 @@ class CodingAgentAdapter:
         if self.mock:
             out = Path(out_dir)
             out.mkdir(parents=True, exist_ok=True)
-            from ..session_cards import write_mock_card
+            from ..persistence.sessions import write_mock_card
             write_mock_card(out / "session.yaml", module="codingagent",
                             session_id="code-qa-mock", kind="qa_session",
                             summary=f"Mock QA: {question[:80]}")

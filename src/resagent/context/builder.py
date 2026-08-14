@@ -7,7 +7,7 @@ from pathlib import Path
 from .policy import ContextPolicy
 from ..models import ResearchState, AgentTask, Observation, DecisionRecord
 from ..resources import resolve_artifact_path
-from ..task_contracts import allowed_action_candidates
+from ..controller.contracts import allowed_action_candidates
 
 
 # ── Controller context (for LLM planner) ──────────────────────────────────────

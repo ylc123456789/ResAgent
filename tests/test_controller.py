@@ -6,8 +6,8 @@ from pathlib import Path
 from resagent.models import (
     ResearchState, ResearchRun, Producer, AgentKind, AgentTask,
 )
-from resagent.state import init_state, save_state
-from resagent.planner import Planner
+from resagent.persistence.state import init_state, save_state
+from resagent.controller.planner import Planner
 from resagent.controller import Controller
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.codingagent import CodingAgentAdapter
@@ -87,7 +87,7 @@ class _FixedPlanner:
 
 def test_expagent_task_is_completed_and_bound_to_its_artifact(tmp_path):
     from resagent.models import ActionName, TaskStatus
-    from resagent.planner import PlannedAction
+    from resagent.controller.planner import PlannedAction
 
     state = init_state("bound-expagent", str(tmp_path), "Analyze result")
     state.artifacts.append(
@@ -115,7 +115,7 @@ def test_expagent_task_is_completed_and_bound_to_its_artifact(tmp_path):
 
 def test_transient_repro_failure_returns_task_to_pending_queue(tmp_path):
     from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
-    from resagent.planner import PlannedAction
+    from resagent.controller.planner import PlannedAction
 
     class FailingRepro:
         def execute(self, task, layout, attempt_number):
@@ -145,7 +145,7 @@ def test_transient_repro_failure_returns_task_to_pending_queue(tmp_path):
 
 def test_submit_user_response_clears_question_and_resumes(tmp_path):
     from resagent.models import PendingQuestion, RunStatus
-    from resagent.state import submit_user_response
+    from resagent.persistence.state import submit_user_response
 
     state = init_state("answer-run", str(tmp_path), "Goal")
     state.run.status = RunStatus.paused
@@ -178,7 +178,7 @@ def test_paused_run_never_calls_planner(tmp_path):
 
 def test_transient_retry_runs_attempt_two_before_new_planning(tmp_path):
     from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
-    from resagent.planner import PlannedAction
+    from resagent.controller.planner import PlannedAction
 
     class OneRetryRepro:
         def __init__(self):
@@ -221,7 +221,7 @@ def test_transient_retry_runs_attempt_two_before_new_planning(tmp_path):
 
 def test_step_limit_is_persisted_as_interrupted(tmp_path):
     from resagent.models import ActionName, RunStatus
-    from resagent.planner import PlannedAction
+    from resagent.controller.planner import PlannedAction
 
     state = init_state("step-limit", str(tmp_path), "goal")
     ctrl = Controller(
@@ -240,7 +240,7 @@ def test_step_limit_is_persisted_as_interrupted(tmp_path):
 
 def test_expagent_task_receives_all_dependency_artifacts(tmp_path):
     from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
-    from resagent.planner import PlannedAction
+    from resagent.controller.planner import PlannedAction
 
     class CapturingExpAgent:
         def __init__(self):

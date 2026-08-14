@@ -22,10 +22,10 @@ from resagent.controller import Controller
 from resagent.models import (
     ActionName, AgentKind, AgentTask, Producer, RunStatus, TaskStatus,
 )
-from resagent.planner import PlannedAction
-from resagent.state import init_state, load_state, save_state, submit_user_response
-from resagent.task_contracts import validate_finish
-from resagent.workspace_layout import WorkspaceLayout
+from resagent.controller.planner import PlannedAction
+from resagent.persistence.state import init_state, load_state, save_state, submit_user_response
+from resagent.controller.contracts import validate_finish
+from resagent.persistence.workspace import WorkspaceLayout
 
 
 class ScriptedPlanner:

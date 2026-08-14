@@ -10,8 +10,8 @@ from io import StringIO
 import resagent
 import resagent.main as cli
 from resagent.models import AgentTask, Artifact, Observation, ResearchRun, ResearchState
-from resagent.prompts import CHAT_SYSTEM, CONTROLLER_SYSTEM, FAILURE_CLASSIFIER, SUMMARY_PROMPT
-from resagent.workspace_layout import WorkspaceLayout
+from resagent.controller.prompts import CHAT_SYSTEM, CONTROLLER_SYSTEM, FAILURE_CLASSIFIER, SUMMARY_PROMPT
+from resagent.persistence.workspace import WorkspaceLayout
 
 
 def _sha256(text: str) -> str:

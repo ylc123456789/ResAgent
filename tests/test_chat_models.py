@@ -1,6 +1,6 @@
 """Tests for chat-layer models (docs/CONVERSATION_LAYER_DESIGN.md §4.2)."""
 
-from resagent.chat_models import (
+from resagent.conversation.models import (
     ConvArtifactRef,
     ConversationState,
     ExpertCard,

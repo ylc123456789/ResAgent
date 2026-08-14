@@ -12,7 +12,7 @@ from .persistence.state import init_state, save_state, load_state
 from .config import Config, load_config
 from .capabilities import CapabilityRegistry
 from .integrations.module_paths import resolve_all
-from .planner import Planner
+from .controller.planner import Planner
 from .controller import Controller
 from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
