@@ -210,6 +210,11 @@ def case_env_reuse(config, workspace: Path) -> dict:
         "Run two bounded MNIST experiments in one project environment.",
         workspace_root=str(workspace / "runs"), config=config,
     )
+    # Synthetic scenario: fixed task graph replaces the seeded advisory task.
+    state.tasks.clear()
+    # Engineering scenario (environment namespace sharing), no scientific
+    # analysis is part of the acceptance — exempt from the coverage gate.
+    state.analysis_required = False
     for index, epochs in enumerate((1, 2), start=1):
         state.tasks.append(AgentTask(
             id=f"task_{index:03d}", agent=Producer.ReproAgent,
@@ -271,6 +276,11 @@ def case_dependency_chain(config, workspace: Path) -> dict:
         "Modify a project and verify the modified code in an isolated experiment.",
         workspace_root=str(workspace / "runs"), config=config,
     )
+    # Synthetic scenario: fixed task graph replaces the seeded advisory task.
+    state.tasks.clear()
+    # Engineering verification (patch + verify), not scientific closure: the
+    # finish gate must not demand analysis coverage for the verify run.
+    state.analysis_required = False
     coding = AgentTask(
         id="task_001", agent=Producer.CodingAgent,
         kind=AgentKind.coding_task, capability="modify_code", required=True,
@@ -325,6 +335,10 @@ def case_fan_in_analysis(config, workspace: Path) -> dict:
         "Compare two completed bounded experiments and explain which result is better.",
         workspace_root=str(workspace / "runs"), config=config,
     )
+    # Synthetic scenario: fixed task graph replaces the seeded advisory task.
+    # analysis_required stays True — the coverage gate is satisfied by the
+    # analysis task below (it depends on both seeded experiments).
+    state.tasks.clear()
     run_root = Path(state.run.workspace_dir) / state.run.run_id
     dependencies = []
     for number, accuracy in ((1, 0.91), (2, 0.94)):
