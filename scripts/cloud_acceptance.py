@@ -180,10 +180,14 @@ def case_repro(
     assert len(completed) == 1, (
         f"expected exactly 1 ReproAgent experiment, got {len(completed)}"
     )
+    # Count EXECUTED analysis only. Optional follow-up proposals the advisor
+    # marks required=False stay pending and are legitimate — they are
+    # proposals, not executed work (§H.1.4 is an execution invariant).
     analysis = [task for task in state.tasks
-                if task.capability == "analyze_results"]
+                if task.capability == "analyze_results"
+                and task.status == TaskStatus.completed]
     assert len(analysis) == 1, (
-        f"expected exactly 1 analyze_results task, got {len(analysis)}"
+        f"expected exactly 1 executed analyze_results task, got {len(analysis)}"
     )
     unresolved = [
         task.id for task in state.tasks

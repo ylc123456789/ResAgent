@@ -386,10 +386,29 @@ class ControllerActions:
                 detail=f"Cannot finish: {check.reason}.",
                 task_ids=list(check.task_ids),
             )
+        summary = str(planned.params.get("summary") or "").strip() or "Run finished."
+        # Surface optional follow-ups the advisor proposed but the run chose
+        # not to execute (required=False, never dispatched). They are part of
+        # the scientific record, not of this run's committed scope.
+        followups = [
+            task for task in state.tasks
+            if not task.required and task.status == TaskStatus.pending
+        ]
+        if followups:
+            lines = "\n".join(
+                f"- {task.id} ({task.capability or task.kind.value}): "
+                + (str(
+                    task.input.get("objective")
+                    or task.input.get("task_goal")
+                    or ""
+                ).strip() or "(no objective)")[:140]
+                for task in followups
+            )
+            summary += f"\n\nProposed follow-ups (optional, not executed):\n{lines}"
         return Observation(
             action=ActionName.finish,
             result="ok",
-            detail=planned.params.get("summary", "Run finished."),
+            detail=summary,
         )
 
     def _handle_unknown(self, state, planned, layout) -> Observation:

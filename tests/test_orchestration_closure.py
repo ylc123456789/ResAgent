@@ -382,3 +382,52 @@ def test_p4_scenario_is_repro_then_expagent_then_finish(tmp_path):
     assert len(analyze) == 1
     assert analyze[0].status == TaskStatus.completed
     assert analyze[0].depends_on == [repro[0].id]
+
+
+def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
+    """Optional follow-up proposals stay pending and are surfaced at finish.
+
+    A bounded run must finish when its committed (required) work is done,
+    even if the advisor proposed optional next steps (required=False). Those
+    proposals are part of the scientific record: the finish summary must
+    list them as proposed-but-not-executed.
+    """
+    state = init_state(
+        "prop", str(tmp_path), "Run a bounded experiment and analyze it",
+    )
+    state.tasks.extend([
+        AgentTask(
+            id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+            capability="execute_experiment", required=True,
+            status=TaskStatus.completed,
+            input={"objective": "Run the bounded 3-epoch experiment"},
+        ),
+        AgentTask(
+            id="task_002", agent=Producer.ExpAgent, kind=AgentKind.advise,
+            capability="analyze_results", required=True,
+            status=TaskStatus.completed, depends_on=["task_001"],
+            input={"objective": "Interpret the bounded run"},
+        ),
+        AgentTask(
+            id="task_003", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+            capability="execute_experiment", required=False,
+            input={"objective": "Run the full 160-epoch reproduction"},
+        ),
+    ])
+    state.artifacts.append(Artifact(
+        id="a1", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
+        path="result.md",
+    ))
+    planner = ScriptedPlanner([
+        PlannedAction(ActionName.finish, {"summary": "Bounded goal satisfied."}),
+    ])
+    ctrl = _controller(planner)
+
+    result = ctrl.run(state, max_steps=5)
+
+    assert result.run.status == RunStatus.completed
+    proposal = result.find_task("task_003")
+    assert proposal.status == TaskStatus.pending  # never dispatched
+    assert "Proposed follow-ups" in result.current_summary
+    assert "task_003" in result.current_summary
+    assert "160-epoch" in result.current_summary
