@@ -1,4 +1,12 @@
-"""Deterministic contracts for module routing and run lifecycle checks."""
+"""Deterministic contracts for module routing and run lifecycle checks.
+
+V2: executor routing is derived from the frozen scientific-capability
+vocabulary (see capabilities.py), never from legacy action names or a
+hard-coded team table. This module also owns the scientific-closure
+invariant: completed experiments must be covered by a completed
+`analyze_results` task before the run may finish (unless the run is an
+explicit engineering smoke test with `analysis_required=False`).
+"""
 
 from __future__ import annotations
 
@@ -8,15 +16,28 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..models import (
-    ActionName, AgentKind, Producer, ResearchState, RunStatus,
-    TaskPriority, TaskStatus,
+    ActionName, AgentKind, AgentTask, DecisionRecord, Producer,
+    ResearchState, RunStatus, TaskPriority, TaskStatus,
 )
+from ..capabilities import CapabilityError, V2_CAPABILITY_TO_PRODUCER
 
 
 TERMINAL_RUN_STATUSES = {RunStatus.completed, RunStatus.failed}
 UNRESOLVED_TASK_STATUSES = {
     TaskStatus.pending, TaskStatus.running, TaskStatus.failed,
     TaskStatus.blocked, TaskStatus.needs_user_input,
+}
+
+# capability -> (internal AgentKind, canonical capability string).
+# AgentTask.agent/kind stay as ResAgent's internal execution model; only the
+# `capability` field crosses the module boundary.
+_CAPABILITY_KIND: dict[str, tuple[AgentKind, str]] = {
+    "modify_code": (AgentKind.coding_task, "modify_code"),
+    "reproduce_experiment": (AgentKind.repro_task, "reproduce_experiment"),
+    "execute_experiment": (AgentKind.repro_task, "execute_experiment"),
+    "analyze_results": (AgentKind.advise, "analyze_results"),
+    "search_literature": (AgentKind.advise, "search_literature"),
+    "ask_user": (AgentKind.ask_user, "ask_user"),
 }
 
 
@@ -47,8 +68,150 @@ def dependencies_satisfied(task, state: ResearchState) -> bool:
     return True
 
 
+def resolve_action(
+    action: dict[str, Any], registry=None,
+) -> tuple[Producer, AgentKind, str]:
+    """Resolve one V2 scientific action into a ResAgent task contract.
+
+    The action is a discriminated union on `capability` (flat, no `type` or
+    `plan.kind`). Executor resolution is deterministic: via the capability
+    registry when one is available (fail-closed on missing/conflicting
+    declarations), else via the frozen V2 vocabulary.
+    """
+    capability = str(action.get("capability", "")).strip()
+    entry = _CAPABILITY_KIND.get(capability)
+    if entry is None:
+        raise CapabilityError(f"unknown scientific capability {capability!r}")
+
+    if registry is not None:
+        executor = registry.resolve(capability)
+    else:
+        executor = V2_CAPABILITY_TO_PRODUCER[capability]
+
+    kind, canonical = entry
+    return executor, kind, canonical
+
+
+def experiment_tasks(state: ResearchState) -> list[AgentTask]:
+    """Tasks that produce raw experiment results (ReproAgent operator)."""
+    return [
+        task for task in state.tasks
+        if task.agent == Producer.ReproAgent
+        and task.capability in {"execute_experiment", "reproduce_experiment"}
+    ]
+
+
+def analysis_coverage(state: ResearchState, experiment_task_id: str) -> str:
+    """Return ``covered | missing | not_required`` for one experiment task.
+
+    ``covered`` means a completed ExpAgent ``analyze_results`` task depends on
+    the experiment and produced a scientific decision. ``not_required`` is
+    returned when the run is an engineering smoke test or the experiment is
+    not a completed result-producing task.
+    """
+    if not state.analysis_required:
+        return "not_required"
+    experiment = state.find_task(experiment_task_id)
+    if experiment is None or experiment.status != TaskStatus.completed:
+        return "not_required"
+    for task in state.tasks:
+        if (
+            task.agent == Producer.ExpAgent
+            and task.capability == "analyze_results"
+            and task.status == TaskStatus.completed
+            and experiment_task_id in task.depends_on
+        ):
+            return "covered"
+    return "missing"
+
+
+def _uncovered_required_experiments(state: ResearchState) -> list[str]:
+    """Completed required experiments whose results are not yet analyzed."""
+    return [
+        task.id for task in experiment_tasks(state)
+        if task.status == TaskStatus.completed
+        and task.required
+        and analysis_coverage(state, task.id) == "missing"
+    ]
+
+
+def ensure_analysis_coverage(
+    state: ResearchState, experiment_task: AgentTask,
+) -> AgentTask | None:
+    """Create one deterministic ExpAgent ``analyze_results`` task if missing.
+
+    The task fingerprint is derived from the experiment's artifact IDs so an
+    equivalent fallback is created at most once. This is an orchestration
+    invariant fix (second line of defense after the ExpAgent validator), not
+    an LLM suggestion. Returns the new task, or None if coverage already
+    exists or analysis is not required.
+    """
+    if not state.analysis_required:
+        return None
+    if experiment_task.capability not in {"execute_experiment", "reproduce_experiment"}:
+        return None
+    if analysis_coverage(state, experiment_task.id) != "missing":
+        return None
+    for task in state.tasks:
+        if (
+            task.agent == Producer.ExpAgent
+            and task.capability == "analyze_results"
+            and experiment_task.id in task.depends_on
+        ):
+            return None
+
+    artifact_ids = sorted(experiment_task.artifacts)
+    fingerprint = task_fingerprint(
+        Producer.ExpAgent, "analyze_results",
+        {"depends_on_artifacts": artifact_ids},
+    )
+    if state.find_task_by_fingerprint(fingerprint) is not None:
+        return None
+
+    task = AgentTask(
+        id=f"task_{state.next_task_number():03d}",
+        source=experiment_task.id,
+        agent=Producer.ExpAgent,
+        kind=AgentKind.advise,
+        capability="analyze_results",
+        required=True,
+        fingerprint=fingerprint,
+        action_id=f"analyze_{experiment_task.id}",
+        project_ref=experiment_task.project_ref,
+        depends_on=[experiment_task.id],
+        input={
+            "description": (
+                "Orchestration invariant: analyze the completed experiment "
+                "results and form a scientific conclusion."
+            ),
+            "task_goal": (
+                "Analyze the completed experiment results and form a "
+                "scientific conclusion."
+            ),
+        },
+    )
+    state.tasks.append(task)
+    state.decisions.append(DecisionRecord(
+        id=f"decision_{state.next_decision_number():03d}",
+        made_by="ResAgent",
+        reason=(
+            "Orchestration invariant fix: completed experiment results must "
+            "be scientifically analyzed before finish."
+        ),
+        selected_action=ActionName.call_exp_agent.value,
+        evidence=[experiment_task.id, *artifact_ids],
+    ))
+    return task
+
+
 def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
-    """Build exact actions the planner may choose in the current state."""
+    """Build exact actions the planner may choose in the current state.
+
+    Only registered, runnable tasks are exposed as candidates (plus the
+    built-in ask_user and finish). There is no free-floating "re-consult"
+    hint: initial consultation is expressed by the initial ExpAgent advisory
+    task, and result analysis by a task-bound analyze_results task.
+    """
     if state.run.status in TERMINAL_RUN_STATUSES:
         return []
     if state.pending_question is not None or state.run.status == RunStatus.paused:
@@ -68,9 +231,6 @@ def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
         if action is not None:
             candidates.append({"action": action.value, "task_id": task.id})
 
-    if not state.artifacts:
-        candidates.append({"action": ActionName.call_exp_agent.value,
-                           "mode": "initial_consult"})
     candidates.append({"action": ActionName.ask_user.value})
     if validate_finish(state).allowed:
         candidates.append({"action": ActionName.finish.value})
@@ -91,6 +251,13 @@ def validate_finish(state: ResearchState) -> FinishCheck:
     )
     if unresolved:
         return FinishCheck(False, "required tasks are unresolved", unresolved)
+    uncovered = _uncovered_required_experiments(state)
+    if uncovered:
+        return FinishCheck(
+            False,
+            "experiment results are not yet scientifically analyzed",
+            tuple(uncovered),
+        )
     if not state.artifacts:
         return FinishCheck(False, "the run has no result artifacts")
     return FinishCheck(True)
@@ -110,104 +277,3 @@ def task_fingerprint(executor: Producer, capability: str,
         ensure_ascii=True, sort_keys=True, default=str,
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
-
-
-def normalize_recommended_action(
-    action: dict[str, Any], state: ResearchState,
-) -> tuple[Producer, AgentKind, str, dict[str, Any]]:
-    """Translate an ExpAgent recommendation into a ResAgent task contract."""
-    action_type = str(action.get("type", "")).strip()
-    plan = dict(action.get("plan") or {})
-    plan_kind = str(plan.get("kind", "")).strip()
-    semantic_kind = plan_kind or action_type
-    if action_type and plan_kind and action_type != plan_kind:
-        raise ValueError(
-            f"action type {action_type!r} does not match plan.kind {plan_kind!r}"
-        )
-
-    explicit = str(action.get("executor") or plan.get("executor") or "").strip()
-    if explicit:
-        try:
-            executor = Producer(explicit)
-        except ValueError as exc:
-            raise ValueError(f"unknown executor: {explicit}") from exc
-    else:
-        executor = _infer_executor(semantic_kind, plan, state)
-
-    if executor == Producer.CodingAgent:
-        kind, capability = AgentKind.coding_task, "modify_code"
-    elif executor == Producer.ReproAgent:
-        kind = AgentKind.repro_task
-        capability = (
-            "run_experiment" if semantic_kind == "run_task"
-            else "reproduce_experiment"
-        )
-        _inherit_repro_context(plan, state)
-    elif executor == Producer.ExpAgent:
-        kind, capability = AgentKind.advise, _expagent_capability(semantic_kind)
-    elif executor == Producer.ResAgent and semantic_kind == "ask_user":
-        kind, capability = AgentKind.ask_user, "request_user_input"
-    else:
-        raise ValueError(
-            f"unsupported executor/task combination: {executor.value}/{semantic_kind}"
-        )
-    return executor, kind, capability, plan
-
-
-def _infer_executor(kind: str, plan: dict[str, Any],
-                    state: ResearchState) -> Producer:
-    if kind == "coding_task":
-        return Producer.CodingAgent
-    if kind == "repro_task":
-        return Producer.ReproAgent
-    if kind in {"result_analysis", "literature_search", "literature_reference"}:
-        return Producer.ExpAgent
-    if kind == "ask_user":
-        return Producer.ResAgent
-    if kind == "run_task":
-        if (plan.get("repo_url") or plan.get("paper_url")
-                or plan.get("workspace_path") or plan.get("repo_path")):
-            return Producer.ReproAgent
-        if any(task.agent == Producer.ReproAgent for task in state.tasks):
-            return Producer.ReproAgent
-        raise ValueError("run_task has no repository or prior reproduction context")
-    raise ValueError(f"unsupported recommended action type: {kind or '<empty>'}")
-
-
-def _inherit_repro_context(plan: dict[str, Any], state: ResearchState) -> None:
-    previous = next(
-        (task for task in reversed(state.tasks)
-         if task.agent == Producer.ReproAgent),
-        None,
-    )
-    if previous is not None:
-        for key in (
-            "paper_url", "repo_url", "workspace_path", "codingagent_path",
-            "dataset_cache_dir",
-        ):
-            if not plan.get(key) and previous.input.get(key):
-                plan[key] = previous.input[key]
-    if not plan.get("experiment_goal"):
-        plan["experiment_goal"] = (
-            plan.get("command_goal") or plan.get("task_goal") or ""
-        )
-    if not plan.get("repo_url") and not (plan.get("workspace_path") or plan.get("repo_path")):
-        raise ValueError(
-            "reproduction task has no repo_url or source workspace"
-        )
-
-
-def _expagent_capability(kind: str) -> str:
-    return {
-        "result_analysis": "analyze_result",
-        "literature_search": "search_literature",
-        "literature_reference": "review_literature",
-    }.get(kind, "scientific_advice")
-
-
-def required_from_priority(priority: TaskPriority,
-                           action: dict[str, Any]) -> bool:
-    """Return explicit optionality, defaulting research work to required."""
-    if "required" in action:
-        return bool(action["required"])
-    return True

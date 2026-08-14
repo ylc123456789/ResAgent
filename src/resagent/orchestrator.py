@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import ResearchState
+from .models import AgentKind, AgentTask, Producer, ResearchState
 from .persistence.state import init_state, save_state, load_state
 from .config import Config, load_config
+from .capabilities import CapabilityRegistry
 from .integrations.module_paths import resolve_all
 from .planner import Planner
 from .controller import Controller
@@ -24,6 +26,34 @@ def _generate_run_id() -> str:
     return f"res-{today}-{suffix}"
 
 
+def seed_initial_advisory_task(state: ResearchState) -> AgentTask:
+    """Register the deterministic initial ExpAgent advisory task.
+
+    The initial scientific consultation is expressed as a registered task (not
+    a free-floating planner hint) so ``allowed_action_candidates`` only ever
+    exposes real, task-bound actions.
+    """
+    task = AgentTask(
+        id=f"task_{state.next_task_number():03d}",
+        source="resagent",
+        agent=Producer.ExpAgent,
+        kind=AgentKind.advise,
+        required=True,
+        action_id="initial_consult",
+        input={
+            "description": (
+                "Initial scientific consultation to produce the action graph."
+            ),
+            "task_goal": (
+                "Analyze the research goal and propose the scientific "
+                "action graph."
+            ),
+        },
+    )
+    state.tasks.append(task)
+    return task
+
+
 def init_run(
     goal: str,
     workspace_root: str = "runs",
@@ -34,6 +64,7 @@ def init_run(
     run_id = _generate_run_id()
     ws = str(Path(workspace_root).resolve())
     state = init_state(run_id=run_id, workspace_dir=ws, research_goal=goal)
+    seed_initial_advisory_task(state)
     save_state(state)
     return state
 
@@ -62,16 +93,29 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
         ]:
             print(f"  {name}: {m.path} (via {m.source})")
 
+    expagent_path = modules.expagent.path if not mock else ""
+    codingagent_path = modules.codingagent.path if not mock else ""
+    reproagent_path = modules.reproagent.path if not mock else ""
+
+    # Unified capability registry — the single source of truth shared by the
+    # chat router and the research controller. Built from the RESOLVED module
+    # paths (not just config.agents). In mock mode there are no module
+    # checkouts, so the adapters fall back to the frozen V2 vocabulary.
+    registry = None
+    if not mock:
+        reg_config = _resolved_registry_config(config, modules)
+        registry = CapabilityRegistry(reg_config)
+        registry.load()
+        for warning in registry.warnings:
+            print(f"[registry] {warning}", file=sys.stderr)
+
     planner = Planner(
         api_base=config.llm.api_base,
         api_key_env=config.llm.api_key_env,
         model=config.llm.model,
         mock=mock,
+        registry=registry,
     )
-
-    expagent_path = modules.expagent.path if not mock else ""
-    codingagent_path = modules.codingagent.path if not mock else ""
-    reproagent_path = modules.reproagent.path if not mock else ""
 
     return Controller(
         planner=planner,
@@ -82,6 +126,7 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
             api_base=config.llm.api_base,
             api_key_env=config.llm.api_key_env,
             mock=mock,
+            registry=registry,
         ),
         codingagent=CodingAgentAdapter(
             module_path=codingagent_path,
@@ -101,6 +146,18 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
             mock=mock,
         ),
     )
+
+
+def _resolved_registry_config(config: Config, modules) -> Config:
+    """Return a Config whose agent paths reflect the resolved module checkouts."""
+    import copy
+
+    reg_config = copy.copy(config)
+    reg_config.agents = copy.copy(config.agents)
+    reg_config.agents.expagent = modules.expagent.path
+    reg_config.agents.codingagent = modules.codingagent.path
+    reg_config.agents.reproagent = modules.reproagent.path
+    return reg_config
 
 
 def run_loop(

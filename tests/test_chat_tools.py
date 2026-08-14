@@ -18,9 +18,41 @@ from resagent.orchestrator import build_controller, init_run
 from resagent.state import load_state
 
 
+def _configure_module_cards(cfg):
+    """Point config at fake module agent.yaml files so the registry resolves.
+
+    Uses a separate temp dir (not the conversation workspace root) so the fake
+    module checkouts are not mistaken for research-run directories.
+    """
+    import tempfile
+
+    root = Path(tempfile.mkdtemp(prefix="resagent-modules-"))
+
+    def write(name, capabilities, side_effects):
+        d = root / name
+        d.mkdir()
+        (d / "agent.yaml").write_text(
+            f"name: {name}\n"
+            f"role: test\n"
+            f"capabilities: [{capabilities}]\n"
+            f"side_effects: {side_effects}\n"
+            f"status: available\n",
+            encoding="utf-8",
+        )
+        return str(d)
+
+    cfg.agents.expagent = write("expagent", "analyze_results, search_literature", "none")
+    cfg.agents.codingagent = write("codingagent", "modify_code", "workspace")
+    cfg.agents.reproagent = write(
+        "reproagent", "reproduce_experiment, execute_experiment",
+        "workspace_and_environment",
+    )
+
+
 @pytest.fixture
 def stack(tmp_path):
     cfg = Config()
+    _configure_module_cards(cfg)
     registry = CapabilityRegistry(cfg)
     registry.load()
     ctrl = build_controller(cfg, mock=True)

@@ -1,6 +1,10 @@
 # Execution Contract v1
 
-Status: frozen for milestone-one implementation.
+Status: **SUPERSEDED** by `SCIENTIFIC_ORCHESTRATION_MAINLINE_REDESIGN.md`
+(the V2 scientific action contract). This document is kept only as a
+historical record of the milestone-one contract; the orchestration mainline
+now consumes V2 `capability`-discriminated actions, not the `type`/`plan.kind`
+shape described below.
 
 This contract coordinates ExpAgent, CodingAgent, reproagent (the experiment
 operator), and ResAgent. It defines data exchanged between modules; it does

@@ -1,13 +1,23 @@
-"""Capability registry — loads ExpertCards ("business cards") for sub-agents.
+"""Capability registry — the single source of truth for capability routing.
 
-See docs/CONVERSATION_LAYER_DESIGN.md §4.4 / §5.
+See docs/SCIENTIFIC_ORCHESTRATION_MAINLINE_REDESIGN.md §6 / §B.
+
+Both the chat router and the research controller resolve capabilities from
+this registry, so there is exactly ONE capability vocabulary and ONE
+capability→executor mapping. Sub-modules declare their own capabilities in
+their own `agent.yaml`; ResAgent never hard-codes a second copy.
 
 Precedence (low -> high):
     built-in defaults  <  config.yaml agents.cards.<name>  <  <module>/agent.yaml
 
-The registry is deliberately thin: it loads cards, validates them, and tells
-the chat layer what may be called at which commitment tier. It is NOT an
-agent framework.
+The V2 capability vocabulary is frozen:
+
+    modify_code           -> CodingAgent
+    reproduce_experiment  -> ReproAgent
+    execute_experiment    -> ReproAgent
+    analyze_results       -> ExpAgent
+    search_literature     -> ExpAgent
+    ask_user              -> ResAgent (built-in, not a sub-module)
 """
 
 from __future__ import annotations
@@ -15,44 +25,54 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .models import Producer
 from .conversation.models import ExpertCard
 from .config import Config
 
+
+class CapabilityError(Exception):
+    """Raised when capability routing cannot be resolved deterministically."""
+
+
+# Frozen V2 scientific-capability vocabulary. Every sub-module agent.yaml must
+# declare only capabilities it OWNS; a duplicate declaration is a config error.
+V2_CAPABILITIES = (
+    "modify_code",
+    "reproduce_experiment",
+    "execute_experiment",
+    "analyze_results",
+    "search_literature",
+    "ask_user",
+)
+
+# Frozen capability -> executor routing. This is the deterministic backbone
+# the registry validates against. `ask_user` is a ResAgent built-in that never
+# needs a module card; every other capability must be declared by exactly one
+# sub-module whose card name maps back to this executor.
+V2_CAPABILITY_TO_PRODUCER: dict[str, Producer] = {
+    "modify_code": Producer.CodingAgent,
+    "reproduce_experiment": Producer.ReproAgent,
+    "execute_experiment": Producer.ReproAgent,
+    "analyze_results": Producer.ExpAgent,
+    "search_literature": Producer.ExpAgent,
+    "ask_user": Producer.ResAgent,
+}
+
+# Module card name -> Producer. ResAgent's own ask_user is built-in.
+_MODULE_TO_PRODUCER: dict[str, Producer] = {
+    "expagent": Producer.ExpAgent,
+    "codingagent": Producer.CodingAgent,
+    "reproagent": Producer.ReproAgent,
+    "resagent": Producer.ResAgent,
+}
+
 # ── Built-in default cards ────────────────────────────────────────────────────
-# These guarantee a working system out of the box. They are overridden by
-# each module's own agent.yaml once that repo ships one.
+# Only ResAgent-owned cards live here. The three executor modules (ExpAgent,
+# CodingAgent, ReproAgent) declare their capabilities in their OWN agent.yaml,
+# loaded from the configured module paths. Keeping a second copy of those
+# capability tables here would let the router drift from the real modules.
 
 BUILTIN_CARDS: list[dict[str, Any]] = [
-    {
-        "name": "expagent",
-        "role": "scientific_advisor",
-        "description_for_router": (
-            "科学顾问。擅长：科学原理问答、研究 idea 可行性讨论、实验设计、"
-            "实验结果分析、失败归因。只读咨询，不执行代码、不跑实验。"
-            "适用：用户问原理/方法/文献，或讨论模糊想法。"
-            "不适用：需要实际改代码或跑实验的请求。"
-        ),
-        "capabilities": [
-            "scientific_advisory", "idea_discussion",
-            "experiment_design", "result_analysis",
-        ],
-        "side_effects": "none",
-        "input_contract": "advise(AdvisorContext) -> ScientificDecision",
-        "status": "available",
-    },
-    {
-        "name": "codingagent",
-        "role": "coding_agent",
-        "description_for_router": (
-            "程序员。擅长：repo 级代码修改（补日志、修 bug、加配置、API 兼容修复）。"
-            "适用：明确的代码修改任务。代码修改有副作用，只能在 ResearchRun 内执行——"
-            "对话层收到修改类请求时，应引导用户立项或推进已有 run，不要直接调用。"
-        ),
-        "capabilities": ["code_modification"],
-        "side_effects": "workspace",
-        "input_contract": "run_code_task(CodeTaskSpec) -> PatchReport",
-        "status": "available",
-    },
     {
         "name": "codingagent_qa",
         "role": "coding_advisor",
@@ -68,26 +88,13 @@ BUILTIN_CARDS: list[dict[str, Any]] = [
         "input_contract": "run_code_question(CodeQuestionSpec) -> CodeExplanation",
         "status": "available",
     },
-    {
-        "name": "reproagent",
-        "role": "reproduction_agent",
-        "description_for_router": (
-            "复现工程师。克隆论文仓库、建 conda 环境、跑 baseline 实验。"
-            "仅在用户明确要求复现/跑 baseline 时使用，且只能在 ResearchRun 内执行。"
-            "绝不用来回答问题。"
-        ),
-        "capabilities": ["reproduction_task", "baseline_run"],
-        "side_effects": "workspace_and_environment",
-        "input_contract": "run_controller(ReproTask) -> AgentState",
-        "status": "available",
-    },
 ]
 
 _ALLOWED_SIDE_EFFECTS = {"none", "workspace", "workspace_and_environment"}
 
 
 class CapabilityRegistry:
-    """Loads and serves ExpertCards."""
+    """Loads and serves ExpertCards; resolves capabilities deterministically."""
 
     def __init__(self, config: Config):
         self.config = config
@@ -162,6 +169,78 @@ class CapabilityRegistry:
 
     def get(self, name: str) -> ExpertCard | None:
         return self.cards.get(name)
+
+    def resolve(self, capability: str) -> Producer:
+        """Deterministically resolve a scientific capability to its executor.
+
+        `ask_user` is a ResAgent built-in. Every other capability must be
+        declared by exactly one sub-module, and that owner must match the
+        frozen V2 vocabulary; zero owners, multiple owners, or a misdeclared
+        owner are all fail-closed config errors — never guessed by the LLM.
+        """
+        if capability == "ask_user":
+            return Producer.ResAgent
+
+        expected = V2_CAPABILITY_TO_PRODUCER.get(capability)
+        if expected is None:
+            raise CapabilityError(f"unknown capability {capability!r}")
+
+        owners = [
+            name for name, card in self.cards.items()
+            if capability in card.capabilities
+        ]
+        if not owners:
+            raise CapabilityError(
+                f"capability '{capability}' is not declared by any module"
+            )
+        if len(owners) > 1:
+            raise CapabilityError(
+                f"capability '{capability}' is declared by multiple modules: "
+                f"{sorted(owners)}"
+            )
+        owner = owners[0]
+        producer = _MODULE_TO_PRODUCER.get(owner)
+        if producer is None:
+            raise CapabilityError(
+                f"capability '{capability}' owner '{owner}' has no Producer mapping"
+            )
+        if producer != expected:
+            raise CapabilityError(
+                f"capability '{capability}' is declared by '{owner}' "
+                f"({producer.value}) but the V2 vocabulary assigns it to "
+                f"{expected.value}"
+            )
+        return producer
+
+    def capability_owner(self, capability: str) -> str:
+        """Return the module card name that owns a capability ("" if none)."""
+        owners = [
+            name for name, card in self.cards.items()
+            if capability in card.capabilities
+        ]
+        return owners[0] if len(owners) == 1 else ""
+
+    def controller_summary(self) -> str:
+        """Compact capability→executor table for the controller prompt.
+
+        Deterministic and non-raising: unresolved capabilities are reported
+        as such here, while actual dispatch fails closed via `resolve()`.
+        """
+        lines = ["## Capability Routing (source of truth: module agent.yaml)"]
+        for capability in V2_CAPABILITIES:
+            if capability == "ask_user":
+                lines.append(f"- {capability} -> ResAgent (built-in)")
+                continue
+            owner = self.capability_owner(capability)
+            producer = _MODULE_TO_PRODUCER.get(owner)
+            if producer is None:
+                lines.append(
+                    f"- {capability} -> UNRESOLVED "
+                    f"(owner: {owner or 'none'})"
+                )
+            else:
+                lines.append(f"- {capability} -> {producer.value} (module: {owner})")
+        return "\n".join(lines)
 
     def available(self) -> list[ExpertCard]:
         return [c for c in self.cards.values() if c.status == "available"]

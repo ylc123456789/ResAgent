@@ -103,21 +103,27 @@ def test_dependency_repo_supersedes_stale_initial_locator(tmp_path):
     assert experiment.input.get("external_repo_path", "") == ""
 
 
-def test_remote_patch_run_graph_injects_setup_operator(tmp_path):
-    state = init_state("graph", str(tmp_path), "patch and run")
+def test_reproduce_patch_run_graph_routes_three_tasks(tmp_path):
+    state = init_state("graph", str(tmp_path), "reproduce, patch and run")
     tasks, issues = actions_to_tasks([
         {
-            "priority": "high", "type": "coding_task", "action_id": "patch",
-            "depends_on": [], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "implement",
-            "plan": {"kind": "coding_task", "repo_url": "https://example/repo.git",
-                     "task_goal": "implement method"},
+            "action_id": "setup", "capability": "reproduce_experiment",
+            "objective": "prepare repo", "rationale": "setup",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "repo_url": "https://example/repo.git", "paper_url": "",
+            "expected_metrics": [],
         },
         {
-            "priority": "high", "type": "run_task", "action_id": "run",
-            "depends_on": ["patch"], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "measure",
-            "plan": {"kind": "run_task", "command_goal": "run experiment"},
+            "action_id": "patch", "capability": "modify_code",
+            "objective": "implement method", "rationale": "implement",
+            "depends_on": ["setup"], "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
+        },
+        {
+            "action_id": "run", "capability": "execute_experiment",
+            "objective": "run experiment", "rationale": "measure",
+            "depends_on": ["patch"], "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ], state, "decision", 1)
 
@@ -126,45 +132,30 @@ def test_remote_patch_run_graph_injects_setup_operator(tmp_path):
         Producer.ReproAgent, Producer.CodingAgent, Producer.ReproAgent,
     ]
     setup, coding, experiment = tasks
-    assert setup.input["setup_only"] is True
     assert setup.input["repo_url"] == "https://example/repo.git"
     assert coding.depends_on == [setup.id]
-    assert not coding.input["repo_url"]
     assert experiment.depends_on == [coding.id]
 
 
-def test_goal_repository_provisions_source_less_patch_run_graph(tmp_path):
-    state = init_state(
-        "goal-repo", str(tmp_path),
-        "Use https://arxiv.org/abs/1 with https://github.com/org/project.git",
-    )
+def test_reproduce_experiment_carries_action_repo(tmp_path):
+    """In V2 the repo locator comes from the action, not ResAgent guessing."""
+    state = init_state("goal-repo", str(tmp_path), "Use some goal text")
     tasks, issues = actions_to_tasks([
         {
-            "priority": "high", "type": "coding_task", "action_id": "patch",
-            "depends_on": [], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "instrument",
-            "plan": {"kind": "coding_task", "task_goal": "add metrics"},
-        },
-        {
-            "priority": "high", "type": "run_task", "action_id": "run",
-            "depends_on": ["patch"], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "measure",
-            "plan": {"kind": "run_task", "command_goal": "run 3 epochs"},
+            "action_id": "setup", "capability": "reproduce_experiment",
+            "objective": "prepare repo", "rationale": "instrument",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "repo_url": "https://github.com/org/project.git", "paper_url": "",
+            "expected_metrics": [],
         },
     ], state, "decision", 1)
 
     assert issues == []
-    assert [task.agent for task in tasks] == [
-        Producer.ReproAgent, Producer.CodingAgent, Producer.ReproAgent,
-    ]
-    setup, coding, experiment = tasks
-    assert setup.input["repo_url"] == "https://github.com/org/project.git"
-    assert setup.input["setup_only"] is True
-    assert coding.depends_on == [setup.id]
-    assert experiment.depends_on == [coding.id]
+    assert [task.agent for task in tasks] == [Producer.ReproAgent]
+    assert tasks[0].input["repo_url"] == "https://github.com/org/project.git"
 
 
-def test_goal_local_repo_routes_serial_run_tasks(tmp_path):
+def test_goal_local_repo_routes_execute_experiment(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -173,13 +164,16 @@ def test_goal_local_repo_routes_serial_run_tasks(tmp_path):
     )
     tasks, issues = actions_to_tasks([
         {
-            "type": "run_task", "action_id": "first",
-            "project_ref": "project", "plan": {"kind": "run_task"},
+            "action_id": "first", "capability": "execute_experiment",
+            "objective": "run first", "rationale": "",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
         {
-            "type": "run_task", "action_id": "second",
-            "depends_on": ["first"], "project_ref": "project",
-            "workspace_intent": "shared", "plan": {"kind": "run_task"},
+            "action_id": "second", "capability": "execute_experiment",
+            "objective": "run second", "rationale": "",
+            "depends_on": ["first"], "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ], state, "decision", 1)
 
@@ -196,33 +190,45 @@ def test_goal_local_repo_routes_serial_run_tasks(tmp_path):
     assert not tasks[0].input["repo_url"]
 
 
-def test_ambiguous_goal_repositories_do_not_guess_run_source(tmp_path):
+def test_ambiguous_goal_yields_empty_workspace(tmp_path):
+    """V2 never guesses a repo; ambiguity leaves workspace empty for materialize."""
     state = init_state(
         "ambiguous", str(tmp_path),
         "Compare https://github.com/a/one.git and https://github.com/b/two.git",
     )
     tasks, issues = actions_to_tasks([
-        {"type": "run_task", "action_id": "run", "plan": {"kind": "run_task"}},
+        {
+            "action_id": "run", "capability": "execute_experiment",
+            "objective": "run", "rationale": "", "depends_on": [],
+            "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
+        },
     ], state, "decision", 1)
-    assert tasks == []
-    assert any("no repository" in issue for issue in issues)
+    assert issues == []
+    assert tasks[0].input["workspace_path"] == ""
 
 
-def test_setup_patch_experiment_chain_reuses_registered_resources(tmp_path):
-    state = init_state("e2e", str(tmp_path), "patch and run")
+def test_reproduce_patch_experiment_chain_reuses_registered_resources(tmp_path):
+    state = init_state("e2e", str(tmp_path), "reproduce, patch and run")
     tasks, issues = actions_to_tasks([
         {
-            "priority": "high", "type": "coding_task", "action_id": "patch",
-            "depends_on": [], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "implement",
-            "plan": {"kind": "coding_task", "repo_url": "https://example/repo.git",
-                     "task_goal": "implement method"},
+            "action_id": "setup", "capability": "reproduce_experiment",
+            "objective": "prepare repo", "rationale": "setup",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "repo_url": "https://example/repo.git", "paper_url": "",
+            "expected_metrics": [],
         },
         {
-            "priority": "high", "type": "run_task", "action_id": "run",
-            "depends_on": ["patch"], "project_ref": "project",
-            "workspace_intent": "shared", "rationale": "measure",
-            "plan": {"kind": "run_task", "command_goal": "run experiment"},
+            "action_id": "patch", "capability": "modify_code",
+            "objective": "implement method", "rationale": "implement",
+            "depends_on": ["setup"], "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
+        },
+        {
+            "action_id": "run", "capability": "execute_experiment",
+            "objective": "run experiment", "rationale": "measure",
+            "depends_on": ["patch"], "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ], state, "decision", 1)
     assert issues == []

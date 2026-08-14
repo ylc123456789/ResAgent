@@ -12,7 +12,7 @@ from resagent.models import (
     ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Producer,
     RunStatus, TaskPriority, TaskStatus,
 )
-from resagent.planner import PlannedAction
+from resagent.planner import PlannedAction, Planner
 from resagent.state import init_state, load_state, save_state, submit_user_response
 from resagent.workspace_layout import WorkspaceLayout
 from resagent.task_contracts import allowed_action_candidates
@@ -149,9 +149,10 @@ def test_expagent_deduplicates_equivalent_recommendations(tmp_path):
     adapter = ExpAgentAdapter(mock=True)
     adapter._state = state
     action = {
-        "priority": "high", "type": "repro_task", "rationale": "baseline",
-        "plan": {"kind": "repro_task", "paper_url": "p", "repo_url": "r",
-                 "experiment_goal": "run baseline"},
+        "action_id": "repro", "capability": "reproduce_experiment",
+        "objective": "run baseline", "rationale": "baseline",
+        "depends_on": [], "project_ref": "project", "required": True,
+        "paper_url": "p", "repo_url": "r", "expected_metrics": [],
     }
     first = adapter._actions_to_tasks([action], "decision_1", 1)
     state.tasks.extend(first)
@@ -160,25 +161,27 @@ def test_expagent_deduplicates_equivalent_recommendations(tmp_path):
     assert second == []
 
 
-def test_followup_run_task_becomes_second_repro_task(tmp_path):
+def test_followup_experiment_inherits_workspace_from_prior_repro(tmp_path):
     state = init_state("followup", str(tmp_path), "goal")
     first = AgentTask(
         id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
         status=TaskStatus.completed, priority=TaskPriority.high,
         input={"paper_url": "p", "repo_url": "r",
-               "experiment_goal": "2 epochs"},
+               "experiment_goal": "2 epochs", "workspace_path": "/prior/repo"},
     )
     state.tasks.append(first)
     adapter = ExpAgentAdapter(mock=True)
     adapter._state = state
     followup = adapter._actions_to_tasks([{
-        "priority": "high", "type": "run_task", "rationale": "consistency",
-        "plan": {"kind": "run_task", "command_goal": "run 3 epochs"},
+        "action_id": "run_more", "capability": "execute_experiment",
+        "objective": "run 3 epochs", "rationale": "consistency",
+        "depends_on": [], "project_ref": "project", "required": True,
+        "expected_metrics": [], "requires_gpu": False,
     }], "decision_2", 2)
 
     assert len(followup) == 1
     assert followup[0].agent == Producer.ReproAgent
-    assert followup[0].input["repo_url"] == "r"
+    assert followup[0].input["workspace_path"] == "/prior/repo"
     assert followup[0].input["experiment_goal"] == "run 3 epochs"
 
 
@@ -186,29 +189,28 @@ def test_same_decision_dependency_chain_routes_and_orders_tasks(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('original')\n", encoding="utf-8")
-    state = init_state("dependency-chain", str(tmp_path), "goal")
+    state = init_state("dependency-chain", str(tmp_path), f"Modify and run {repo}")
     adapter = ExpAgentAdapter(mock=True)
     adapter._state = state
     actions = [
         {
-            "priority": "high", "type": "coding_task",
-            "action_id": "patch", "project_ref": "project",
-            "rationale": "patch",
-            "plan": {"kind": "coding_task", "workspace_path": str(repo),
-                     "task_goal": "change training"},
+            "action_id": "patch", "capability": "modify_code",
+            "objective": "change training", "rationale": "patch",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
         },
         {
-            "priority": "high", "type": "run_task",
-            "action_id": "run", "depends_on": ["patch"],
-            "project_ref": "project", "rationale": "verify",
-            "plan": {"kind": "run_task", "command_goal": "run one epoch"},
+            "action_id": "run", "capability": "execute_experiment",
+            "objective": "run one epoch", "rationale": "verify",
+            "depends_on": ["patch"], "project_ref": "project", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ]
     tasks = adapter._actions_to_tasks(actions, "decision", 1)
     state.tasks.extend(tasks)
     assert [task.agent for task in tasks] == [Producer.CodingAgent, Producer.ReproAgent]
     assert tasks[1].depends_on == [tasks[0].id]
-    assert tasks[1].input["source_workspace"] == str(repo)
+    assert tasks[1].input["workspace_path"] == str(repo)
     assert {"action": "call_coding_agent", "task_id": tasks[0].id} in allowed_action_candidates(state)
     assert {"action": "call_repro_agent", "task_id": tasks[1].id} not in allowed_action_candidates(state)
     tasks[0].status = TaskStatus.completed
@@ -223,17 +225,16 @@ def test_every_action_requires_its_own_action_id(tmp_path):
     adapter._state = state
     tasks = adapter._actions_to_tasks([
         {
-            "type": "coding_task", "action_id": "patch",
-            "rationale": "patch", "plan": {
-                "kind": "coding_task", "workspace_path": str(repo),
-                "task_goal": "change code",
-            },
+            "action_id": "patch", "capability": "modify_code",
+            "objective": "change code", "rationale": "patch",
+            "depends_on": [], "project_ref": "", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
         },
         {
-            "type": "run_task", "depends_on": ["patch"],
-            "rationale": "verify", "plan": {
-                "kind": "run_task", "command_goal": "run once",
-            },
+            "capability": "execute_experiment",
+            "objective": "run once", "rationale": "verify",
+            "depends_on": ["patch"], "project_ref": "", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ], "decision", 1)
 
@@ -256,16 +257,16 @@ def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
     adapter._state = state
     tasks = adapter._actions_to_tasks([
         {
-            "type": "coding_task", "action_id": "patch",
-            "project_ref": "fixture", "rationale": "patch",
-            "plan": {"kind": "coding_task", "workspace_path": "",
-                     "task_goal": "change code"},
+            "action_id": "patch", "capability": "modify_code",
+            "objective": "change code", "rationale": "patch",
+            "depends_on": [], "project_ref": "fixture", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
         },
         {
-            "type": "run_task", "action_id": "run", "depends_on": ["patch"],
-            "project_ref": "fixture", "rationale": "verify",
-            "plan": {"kind": "run_task", "workspace_path": "",
-                     "command_goal": "run once"},
+            "action_id": "run", "capability": "execute_experiment",
+            "objective": "run once", "rationale": "verify",
+            "depends_on": ["patch"], "project_ref": "fixture", "required": True,
+            "expected_metrics": [], "requires_gpu": False,
         },
     ], "decision", 1)
 
@@ -273,7 +274,6 @@ def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
     assert len(tasks) == 2
     assert tasks[0].input["workspace_path"] == str(repo)
     assert tasks[1].input["workspace_path"] == str(repo)
-    assert tasks[1].input["source_workspace"] == str(repo)
 
 
 def test_dependency_cycle_is_rejected_atomically(tmp_path):
@@ -281,10 +281,14 @@ def test_dependency_cycle_is_rejected_atomically(tmp_path):
     adapter = ExpAgentAdapter(mock=True)
     adapter._state = state
     tasks = adapter._actions_to_tasks([
-        {"type": "coding_task", "action_id": "a", "depends_on": ["b"],
-         "rationale": "a", "plan": {"kind": "coding_task", "task_goal": "a"}},
-        {"type": "coding_task", "action_id": "b", "depends_on": ["a"],
-         "rationale": "b", "plan": {"kind": "coding_task", "task_goal": "b"}},
+        {"action_id": "a", "capability": "modify_code", "objective": "a",
+         "rationale": "a", "depends_on": ["b"], "project_ref": "",
+         "required": True, "constraints": [], "verify_commands": [],
+         "expected_artifacts": []},
+        {"action_id": "b", "capability": "modify_code", "objective": "b",
+         "rationale": "b", "depends_on": ["a"], "project_ref": "",
+         "required": True, "constraints": [], "verify_commands": [],
+         "expected_artifacts": []},
     ], "decision", 1)
     assert tasks == []
     assert any("cycle" in issue for issue in adapter._normalization_issues)
@@ -350,9 +354,31 @@ def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):
     adapter = ExpAgentAdapter(mock=True)
     adapter._state = state
     followup = adapter._actions_to_tasks([{
-        "type": "coding_task",
-        "rationale": "instrument the reproduced code",
-        "plan": {"kind": "coding_task", "task_goal": "add metrics"},
+        "action_id": "instrument", "capability": "modify_code",
+        "objective": "add metrics", "rationale": "instrument the reproduced code",
+        "depends_on": [], "project_ref": "", "required": True,
+        "constraints": [], "verify_commands": [], "expected_artifacts": [],
     }], "decision_002", state.next_task_number())
     assert len(followup) == 1
     assert followup[0].input["workspace_path"] == str(repo)
+
+
+def test_p4_scenario_is_repro_then_expagent_then_finish(tmp_path):
+    """The P4 flow: one experiment, then one analysis, then a clean finish."""
+    state = init_state(
+        "p4", str(tmp_path),
+        "Run the ODE-Net experiment and analyze deviations from the paper",
+    )
+    ctrl = _controller(Planner(mock=True))
+
+    result = ctrl.run(state, max_steps=20)
+
+    repro = [t for t in result.tasks if t.agent == Producer.ReproAgent]
+    analyze = [t for t in result.tasks if t.capability == "analyze_results"]
+
+    assert result.run.status == RunStatus.completed
+    assert len(repro) == 1
+    assert repro[0].status == TaskStatus.completed
+    assert len(analyze) == 1
+    assert analyze[0].status == TaskStatus.completed
+    assert analyze[0].depends_on == [repro[0].id]

@@ -201,6 +201,14 @@ class PendingQuestion(BaseModel):
 class ResearchState(BaseModel):
     """Full persistent state of a research run."""
     run: ResearchRun
+    analysis_required: bool = Field(
+        default=True,
+        description=(
+            "Whether terminal experiments must be covered by a completed "
+            "analyze_results task before the run can finish. Set False only "
+            "for pure engineering smoke tests (see §6.3 of the redesign doc)."
+        ),
+    )
     current_summary: str = ""
     artifacts: list[Artifact] = Field(default_factory=list)
     resources: list[ResourceRef] = Field(default_factory=list)

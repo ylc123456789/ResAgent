@@ -193,7 +193,7 @@ class ChatTools(SessionToolsMixin):
         if actions:
             parts.append("Recommended actions (NOT executed, advisory only):")
             for a in actions[:5]:
-                parts.append(f"  - [{a.get('type', '?')}] {a.get('rationale', '')[:120]}")
+                parts.append(f"  - [{a.get('capability', '?')}] {a.get('rationale', '')[:120]}")
         risks = raw.get("risks") or []
         if risks:
             parts.append("Risks: " + "; ".join(str(r)[:100] for r in risks[:3]))

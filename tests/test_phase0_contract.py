@@ -34,13 +34,15 @@ def test_cli_help_contract(monkeypatch) -> None:
 
 
 def test_prompt_contracts() -> None:
+    # CONTROLLER_SYSTEM is now a dynamic template: no hard-coded team table,
+    # with a {capabilities} placeholder rendered from the capability registry.
+    assert "{capabilities}" in CONTROLLER_SYSTEM
+    assert "Your team" not in CONTROLLER_SYSTEM
     assert [_sha256(prompt) for prompt in (
-        CONTROLLER_SYSTEM,
         CHAT_SYSTEM,
         FAILURE_CLASSIFIER,
         SUMMARY_PROMPT,
     )] == [
-        "e8f13e8318d56498d15e1a728380e590225f03bdaac24f4707711eba872c5889",
         "431c36ee84bbf6c395036be322e912bab670a7615f8fc3ec506c1bb77f0fab75",
         "2a1a5e2b70975c28a778d2b17a7f092f028c4f133a39590bfd905dbc991f8936",
         "0ef333277a243b417592aa4a92978ce8f2811854cb0a40477bdf4ab615e2c2e5",
@@ -49,9 +51,9 @@ def test_prompt_contracts() -> None:
 
 def test_persisted_model_field_contracts() -> None:
     assert list(ResearchState.model_fields) == [
-        "run", "current_summary", "artifacts", "resources", "tasks", "decisions",
-        "observations", "budget", "user_directives", "pending_question",
-        "answered_questions",
+        "run", "analysis_required", "current_summary", "artifacts", "resources",
+        "tasks", "decisions", "observations", "budget", "user_directives",
+        "pending_question", "answered_questions",
     ]
     assert list(AgentTask.model_fields) == [
         "id", "source", "agent", "kind", "status", "priority", "capability",

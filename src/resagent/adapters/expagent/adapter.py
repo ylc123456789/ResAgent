@@ -26,12 +26,14 @@ class ExpAgentAdapter:
         api_base: str = "https://api.deepseek.com",
         api_key_env: str = "DEEPSEEK_API_KEY",
         mock: bool = False,
+        registry=None,
     ):
         self.module_path = module_path
         self.model = model
         self.api_base = api_base
         self.api_key_env = api_key_env
         self.mock = mock
+        self.registry = registry
         self._imported = False
 
     def advise(self, state, layout, task: AgentTask | None = None) -> dict:
@@ -90,6 +92,8 @@ class ExpAgentAdapter:
         )
 
         self._state = state  # so inference helpers can access state
+        # The decision's analysis_required flag governs the finish gate.
+        state.analysis_required = bool(raw.get("analysis_required", True))
         tasks = self._actions_to_tasks(
             raw.get("recommended_actions", []),
             source=artifact.id,
@@ -300,30 +304,29 @@ class ExpAgentAdapter:
             },
             "evidence": [],
             "experiment_plan": None,
+            "analysis_required": True,
             "recommended_actions": [
                 {
-                    "priority": 1,
-                    "type": "repro_task",
-                    "rationale": "Reproduce a known MNIST baseline for comparison.",
-                    "plan": {
-                        "kind": "repro_task",
-                        "paper_url": "https://arxiv.org/abs/example",
-                        "repo_url": "https://github.com/example/mnist-baseline",
-                        "experiment_goal": "Reproduce baseline CNN MNIST accuracy",
-                    },
+                    "action_id": "run_baseline",
+                    "capability": "execute_experiment",
+                    "objective": "Run a baseline experiment and record its metrics.",
+                    "rationale": "Establish a baseline for later comparison.",
+                    "depends_on": [],
+                    "project_ref": "mnist_baseline",
+                    "required": True,
+                    "success_criteria": ["baseline accuracy recorded"],
+                    "requires_gpu": False,
+                    "expected_metrics": ["test accuracy"],
                 },
                 {
-                    "priority": 2,
-                    "type": "coding_task",
-                    "rationale": "Add consistent metric logging to the training code.",
-                    "plan": {
-                        "kind": "coding_task",
-                        "workspace_path": "./",
-                        "task_goal": "Add parameter count and FLOPs logging",
-                        "constraints": ["Do not change training semantics"],
-                        "verify_commands": ["python train.py --epochs 1 --dry-run"],
-                        "expected_artifacts": ["logs/metrics.json"],
-                    },
+                    "action_id": "analyze_baseline",
+                    "capability": "analyze_results",
+                    "objective": "Interpret the baseline results.",
+                    "rationale": "Determine whether the baseline forms a valid learning signal.",
+                    "depends_on": ["run_baseline"],
+                    "project_ref": "mnist_baseline",
+                    "required": True,
+                    "success_criteria": ["conclusion state reported"],
                 },
             ],
             "risks": [],
@@ -337,7 +340,7 @@ class ExpAgentAdapter:
     ) -> list[AgentTask]:
         """Convert one validated ExpAgent action graph into ResAgent tasks."""
         tasks, self._normalization_issues = actions_to_tasks(
-            actions, self._state, source, next_num,
+            actions, self._state, source, next_num, registry=self.registry,
         )
         return tasks
 

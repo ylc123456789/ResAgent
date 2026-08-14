@@ -1,52 +1,54 @@
 {
-  "decision_id": "decision_contract_001",
+  "decision_id": "decision_contract_v2",
+  "analysis_required": true,
   "recommended_actions": [
     {
       "action_id": "prepare_example",
-      "type": "repro_task",
+      "capability": "reproduce_experiment",
+      "objective": "Prepare and audit the bounded experiment environment.",
+      "rationale": "Clone and set up the target repository once.",
       "depends_on": [],
       "project_ref": "example_repo",
-      "workspace_intent": "shared",
-      "plan": {
-        "kind": "repro_task",
-        "repo_url": "https://example.invalid/research/example-repo.git",
-        "setup_only": true,
-        "experiment_goal": "Prepare and audit the bounded experiment environment."
-      }
+      "required": true,
+      "success_criteria": ["repository prepared"],
+      "paper_url": "",
+      "repo_url": "https://example.invalid/research/example-repo.git",
+      "expected_metrics": []
     },
     {
       "action_id": "patch_example",
-      "type": "coding_task",
+      "capability": "modify_code",
+      "objective": "Add bounded metric logging without changing model semantics.",
+      "rationale": "Instrument the training loop for evidence collection.",
       "depends_on": ["prepare_example"],
       "project_ref": "example_repo",
-      "workspace_intent": "shared",
-      "plan": {
-        "kind": "coding_task",
-        "task_goal": "Add bounded metric logging without changing model semantics."
-      }
+      "required": true,
+      "success_criteria": ["metrics logged"],
+      "constraints": ["Do not change model semantics"],
+      "verify_commands": ["python -m py_compile *.py"],
+      "expected_artifacts": ["logs/metrics.json"]
     },
     {
       "action_id": "run_example",
-      "type": "run_task",
+      "capability": "execute_experiment",
+      "objective": "Run the bounded GPU experiment and report evidenced metrics.",
+      "rationale": "Produce raw metrics for scientific analysis.",
       "depends_on": ["patch_example"],
       "project_ref": "example_repo",
-      "workspace_intent": "shared",
-      "plan": {
-        "kind": "run_task",
-        "command_goal": "Run the bounded GPU experiment and report evidenced metrics.",
-        "requires_gpu": true
-      }
+      "required": true,
+      "success_criteria": ["experiment completed", "metrics recorded"],
+      "requires_gpu": true,
+      "expected_metrics": ["test accuracy", "runtime"]
     },
     {
       "action_id": "analyze_example",
-      "type": "result_analysis",
+      "capability": "analyze_results",
+      "objective": "Assess whether the evidenced result supports the hypothesis.",
+      "rationale": "Close the scientific loop over the experiment results.",
       "depends_on": ["run_example"],
       "project_ref": "example_repo",
-      "workspace_intent": "",
-      "plan": {
-        "kind": "result_analysis",
-        "task_goal": "Assess whether the evidenced result supports the hypothesis."
-      }
+      "required": true,
+      "success_criteria": ["conclusion state reported"]
     }
   ]
 }

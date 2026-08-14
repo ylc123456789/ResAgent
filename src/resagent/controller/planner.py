@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..models import ResearchState, ActionName
-from .prompts import CONTROLLER_SYSTEM
+from .prompts import render_controller_system
 from ..context.builder import build_controller_context
 
 
@@ -34,11 +34,13 @@ class Planner:
         api_key_env: str = "DEEPSEEK_API_KEY",
         model: str = "deepseek-v4-pro",
         mock: bool = False,
+        registry=None,
     ):
         self.api_base = api_base
         self.api_key_env = api_key_env
         self.model = model
         self.mock = mock
+        self.registry = registry
 
     def choose_action(self, state: ResearchState) -> PlannedAction:
         """Observe state and return the next planned action."""
@@ -79,7 +81,14 @@ class Planner:
     # -- internal -----------------------------------------------------------
 
     def _call_llm(self, context: str) -> str:
-        return self._call_llm_raw(CONTROLLER_SYSTEM, context)
+        system = render_controller_system(self._capability_summary())
+        return self._call_llm_raw(system, context)
+
+    def _capability_summary(self) -> str:
+        """Live capability→executor table, or an explicit empty note."""
+        if self.registry is not None:
+            return self.registry.controller_summary()
+        return "(no capability registry loaded)"
 
     def _call_llm_raw(self, system: str, user: str) -> str:
         import httpx
@@ -134,24 +143,10 @@ class Planner:
     def _mock_choose(self, state: ResearchState, context: str) -> PlannedAction:
         """Deterministic mock for testing without LLM.
 
-        Logic: call_exp_agent if no artifacts yet.
-        Otherwise execute the first pending task.
-        Otherwise finish.
+        Logic: execute the first pending task (which includes the seeded
+        initial ExpAgent advisory task). Otherwise, if there are no artifacts
+        yet, fall back to a task-less initial consultation. Otherwise finish.
         """
-        if not state.artifacts:
-            return PlannedAction(
-                action=ActionName.call_exp_agent,
-                params={
-                    "reason": "Initial consultation",
-                    "focus": "Analyze research goal",
-                },
-                reason="No artifacts yet -- need ExpAgent to analyze the goal.",
-                analysis=(
-                    "Starting research. First step is always scientific "
-                    "consultation."
-                ),
-            )
-
         pending = [t for t in state.tasks if t.status.value == "pending"]
         if pending:
             t = pending[0]
@@ -167,6 +162,20 @@ class Planner:
                 reason=f"Executing pending task {t.id}.",
                 analysis=(
                     f"Task {t.id} is the highest-priority pending task."
+                ),
+            )
+
+        if not state.artifacts:
+            return PlannedAction(
+                action=ActionName.call_exp_agent,
+                params={
+                    "reason": "Initial consultation",
+                    "focus": "Analyze research goal",
+                },
+                reason="No artifacts yet -- need ExpAgent to analyze the goal.",
+                analysis=(
+                    "Starting research. First step is always scientific "
+                    "consultation."
                 ),
             )
 

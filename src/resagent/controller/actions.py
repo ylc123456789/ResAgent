@@ -10,7 +10,9 @@ from ..models import (
 )
 from .planner import PlannedAction
 from ..policies.retry import RetryPolicy, classify_transient
-from .contracts import dependencies_satisfied, validate_finish
+from .contracts import (
+    dependencies_satisfied, ensure_analysis_coverage, validate_finish,
+)
 from ..persistence.workspace import WorkspaceLayout
 from ..resources import (
     materialize_dependency_artifacts,
@@ -207,6 +209,8 @@ class ControllerActions:
                 result.get("session_manifest", ""),
                 materialized_workspace,
             )
+            if task.status == TaskStatus.completed:
+                ensure_analysis_coverage(state, task)
             spawned = None
             detail = result["raw"].get("summary", "")
             if task.status == TaskStatus.blocked:

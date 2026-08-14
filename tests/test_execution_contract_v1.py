@@ -12,6 +12,11 @@ FIXTURES = Path(__file__).parent / "fixtures" / "execution_contract_v1"
 PHYSICAL_FIELDS = {
     "workspace_path", "external_repo_path", "copy_from", "env_name",
 }
+V2_CAPABILITIES = {
+    "modify_code", "reproduce_experiment", "execute_experiment",
+    "analyze_results", "search_literature", "ask_user",
+}
+LEGACY_V1_FIELDS = {"type", "plan", "workspace_intent", "kind", "priority"}
 
 
 def _load_json(name: str) -> dict:
@@ -54,7 +59,7 @@ def test_legacy_session_fixture_has_no_resource_registration() -> None:
     assert card["project_path"]
 
 
-def test_logical_plan_uses_action_ids_without_physical_paths() -> None:
+def test_logical_plan_uses_capability_without_physical_or_v1_fields() -> None:
     actions = _load_json("logical_plan.json")["recommended_actions"]
     action_ids = [action["action_id"] for action in actions]
     assert all(action_ids)
@@ -62,12 +67,15 @@ def test_logical_plan_uses_action_ids_without_physical_paths() -> None:
 
     seen: set[str] = set()
     for action in actions:
+        assert action["capability"] in V2_CAPABILITIES
         assert set(action["depends_on"]) <= seen
-        assert action["workspace_intent"] in {"", "shared", "isolated"}
         assert not (set(_walk_keys(action)) & PHYSICAL_FIELDS)
+        assert not (set(_walk_keys(action)) & LEGACY_V1_FIELDS)
         seen.add(action["action_id"])
 
-    project_actions = [a for a in actions if a["type"] != "result_analysis"]
+    project_actions = [
+        a for a in actions if a["capability"] != "analyze_results"
+    ]
     assert {a["project_ref"] for a in project_actions} == {"example_repo"}
 
 
