@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .policy import ContextPolicy
 from ..models import ResearchState, AgentTask, Observation, DecisionRecord
+from ..resources import resolve_artifact_path
 from ..task_contracts import allowed_action_candidates
 
 
@@ -242,7 +243,7 @@ def _latest_result_evidence(state: ResearchState, limit: int) -> str:
     for artifact in reversed(state.artifacts):
         if artifact.type.value != "repro_result":
             continue
-        path = (Path(state.run.workspace_dir) / state.run.run_id / artifact.path).resolve()
+        path = resolve_artifact_path(state, artifact.path)
         root = (Path(state.run.workspace_dir) / state.run.run_id).resolve()
         if root not in path.parents or not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json"}:
             continue

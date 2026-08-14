@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
@@ -20,6 +22,7 @@ from resagent.resources import (
     materialize_task_bindings,
     materialize_dependency_artifacts,
     register_task_resources,
+    resolve_artifact_path,
     schedule_coding_repair,
 )
 from resagent.state import init_state
@@ -501,3 +504,14 @@ def test_multiple_dependency_artifacts_are_bound_with_actual_paths(tmp_path):
     assert [item["path"] for item in bindings] == [
         str(first_path.resolve()), str(second_path.resolve()),
     ]
+
+
+def test_artifact_path_resolution_accepts_run_relative_and_absolute_paths(tmp_path):
+    state = init_state("paths", str(tmp_path), "resolve artifacts")
+    relative = Path("tasks/repro/result.md")
+    absolute = tmp_path / "external" / "result.md"
+
+    assert resolve_artifact_path(state, relative) == (
+        tmp_path / "paths" / relative
+    ).resolve()
+    assert resolve_artifact_path(state, absolute) == absolute.resolve()

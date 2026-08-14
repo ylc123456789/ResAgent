@@ -9,6 +9,17 @@ from .persistence.sessions import read_session_card
 from .persistence.workspace import WorkspaceLayout
 
 
+def resolve_artifact_path(
+    state: ResearchState, artifact_path: str | Path,
+) -> Path:
+    """Resolve an artifact path using the run root as its stable base."""
+    path = Path(artifact_path).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    run_root = Path(state.run.workspace_dir) / state.run.run_id
+    return (run_root / path).resolve()
+
+
 def materialize_task_bindings(
     state: ResearchState,
     task: AgentTask,
@@ -68,7 +79,6 @@ def materialize_dependency_artifacts(
     state: ResearchState, task: AgentTask,
 ) -> list[dict[str, str]]:
     """Bind immutable outputs from every direct dependency to ``task``."""
-    run_root = (Path(state.run.workspace_dir) / state.run.run_id).resolve()
     bindings: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for dependency_id in task.depends_on:
@@ -80,8 +90,7 @@ def materialize_dependency_artifacts(
             if artifact is None or (dependency_id, artifact.id) in seen:
                 continue
             seen.add((dependency_id, artifact.id))
-            path = Path(artifact.path)
-            absolute = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+            absolute = resolve_artifact_path(state, artifact.path)
             bindings.append({
                 "artifact_id": artifact.id,
                 "producer_task_id": dependency_id,

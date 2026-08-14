@@ -2,10 +2,12 @@
 
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 from resagent.models import (
     ResearchState, ResearchRun, AgentTask, Producer, AgentKind,
+    Artifact, ArtifactType,
 )
 from resagent.adapters.expagent import ExpAgentAdapter
 from resagent.adapters.codingagent import CodingAgentAdapter
@@ -46,6 +48,58 @@ class TestExpAgentAdapter:
         tasks = result["tasks"]
         kinds = {t.kind for t in tasks}
         assert AgentKind.coding_task in kinds or AgentKind.repro_task in kinds
+
+    def test_fallback_artifacts_use_run_root_absolute_paths(
+        self, tmp_path, monkeypatch,
+    ):
+        """Advisory review can read prior results without direct dependencies."""
+        class FakeArtifactRef:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class FakeAdvisorContext:
+            model_fields = {}
+
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        package = types.ModuleType("experiment_designer")
+        models = types.ModuleType("experiment_designer.models")
+        models.AdvisorContext = FakeAdvisorContext
+        models.ArtifactRef = FakeArtifactRef
+        monkeypatch.setitem(sys.modules, "experiment_designer", package)
+        monkeypatch.setitem(sys.modules, "experiment_designer.models", models)
+
+        run_id = "artifact-review"
+        state = ResearchState(run=ResearchRun(
+            run_id=run_id,
+            workspace_dir=str(tmp_path),
+            research_goal="Review the reproduction result",
+        ))
+        result_path = tmp_path / run_id / "tasks" / "repro" / "result.md"
+        result_path.parent.mkdir(parents=True)
+        result_path.write_text("final accuracy: 99.08%", encoding="utf-8")
+        state.artifacts.append(Artifact(
+            id="repro_result_001",
+            type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path="tasks/repro/result.md",
+            summary="GPU reproduction completed",
+        ))
+        task = AgentTask(
+            id="task_002",
+            agent=Producer.ExpAgent,
+            kind=AgentKind.advise,
+            input={"task_goal": "Analyze the completed experiment"},
+        )
+        adapter = ExpAgentAdapter()
+        monkeypatch.setattr(adapter, "_ensure_import", lambda: None)
+
+        context = adapter._build_advisor_context(state, task)
+
+        assert len(context.artifacts) == 1
+        assert context.artifacts[0].path == str(result_path.resolve())
+        assert Path(context.artifacts[0].path).read_text() == "final accuracy: 99.08%"
 
 
 class TestCodingAgentAdapter:

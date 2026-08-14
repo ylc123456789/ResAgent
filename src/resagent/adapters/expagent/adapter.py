@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from ...models import Artifact, ArtifactType, Producer, AgentTask
+from ...resources import resolve_artifact_path
 from .task_conversion import actions_to_tasks
 
 
@@ -206,10 +207,11 @@ class ExpAgentAdapter:
             source_artifacts = state.artifacts[-20:]
         for a in source_artifacts:
             binding = binding_by_id.get(a.id, {})
+            path = binding.get("path") or a.path
             artifacts.append(ArtifactRef(
                 id=a.id,
                 type=_map_artifact_type(a.type.value),
-                path=binding.get("path", a.path),
+                path=str(resolve_artifact_path(state, path)),
                 summary=a.summary,
             ))
 
