@@ -162,7 +162,7 @@ def _dispatch(args):
         print(status(args.workspace, args.run_id))
 
     elif args.command == "chat":
-        from .capabilities import CapabilityRegistry
+        from .orchestrator import build_capability_registry
         from .conversation.loop import ChatLoop, run_repl
         from .conversation.tools import ChatTools
         from .conversation.history import load_conversation, new_conversation
@@ -170,14 +170,16 @@ def _dispatch(args):
         mock = getattr(args, "mock", False)
         ws = str(Path(args.workspace or cfg.workspace.default_runs_dir).resolve())
 
-        registry = CapabilityRegistry(cfg)
-        registry.load()
+        # One registry, built via the single construction path (5-tier
+        # resolved module paths) and SHARED with the controller below, so
+        # chat routing and run dispatch can never drift apart.
+        registry = build_capability_registry(cfg)
         for w in registry.warnings:
             print(f"[registry] {w}", file=sys.stderr)
 
         # One shared controller: its adapters serve Tier-1 consults, and the
         # controller itself drives Tier-2 run advancement.
-        ctrl = build_controller(cfg, mock=mock)
+        ctrl = build_controller(cfg, mock=mock, registry=registry)
         tools = ChatTools(
             cfg, registry,
             expagent=ctrl.expagent,

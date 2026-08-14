@@ -69,11 +69,38 @@ def init_run(
     return state
 
 
-def build_controller(config: Config, mock: bool = False) -> Controller:
+def build_capability_registry(config: Config, modules=None) -> CapabilityRegistry:
+    """Build THE capability registry — the single construction path.
+
+    Both the chat router and the research controller obtain their registry
+    here, so capability routing can never drift between the two. Module
+    paths come from the same 5-tier resolution the controller uses
+    (CLI > env > config > import > vendor); unresolvable modules degrade
+    to an empty path, leaving built-in/config cards in place.
+    """
+    if modules is None:
+        modules = resolve_all(
+            cli_expagent=config.cmd_expagent,
+            cli_codingagent=config.cmd_codingagent,
+            cli_reproagent=config.cmd_reproagent,
+            config_expagent=config.agents.expagent,
+            config_codingagent=config.agents.codingagent,
+            config_reproagent=config.agents.reproagent,
+        )
+    registry = CapabilityRegistry(_resolved_registry_config(config, modules))
+    registry.load()
+    return registry
+
+
+def build_controller(
+    config: Config, mock: bool = False, registry: CapabilityRegistry | None = None,
+) -> Controller:
     """Build a Controller from config, resolving all module paths.
 
     Uses the 5-tier path resolution: CLI > env > config > import > vendor.
     Paths from config.agents are those already resolved through CLI/env/config.
+    Callers that need to share one registry with the chat layer (main.py
+    chat) build it via build_capability_registry and pass it in.
     """
     modules = resolve_all(
         cli_expagent=config.cmd_expagent,
@@ -98,14 +125,12 @@ def build_controller(config: Config, mock: bool = False) -> Controller:
     reproagent_path = modules.reproagent.path if not mock else ""
 
     # Unified capability registry — the single source of truth shared by the
-    # chat router and the research controller. Built from the RESOLVED module
-    # paths (not just config.agents). In mock mode there are no module
+    # chat router and the research controller, built from the RESOLVED module
+    # paths via the single construction path (build_capability_registry).
+    # In mock mode without a caller-provided registry there are no module
     # checkouts, so the adapters fall back to the frozen V2 vocabulary.
-    registry = None
-    if not mock:
-        reg_config = _resolved_registry_config(config, modules)
-        registry = CapabilityRegistry(reg_config)
-        registry.load()
+    if registry is None and not mock:
+        registry = build_capability_registry(config, modules)
         for warning in registry.warnings:
             print(f"[registry] {warning}", file=sys.stderr)
 

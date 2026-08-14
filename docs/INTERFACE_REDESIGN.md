@@ -2,7 +2,7 @@
 
 **日期**: 2026-08-06
 **涉及模块**: ResAgent、ExpAgent（CodingAgent / ReproAgent 不变）
-**状态**: 方案阶段，待两边确认后实施
+**状态**: SUPERSEDED — 未按本文实施；实际实施方案为 `SCIENTIFIC_ORCHESTRATION_MAINLINE_REDESIGN.md`（V2 科学编排主线，已落地并通过云端验收）。本文仅作历史记录保留。
 
 ---
 
