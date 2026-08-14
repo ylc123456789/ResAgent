@@ -175,6 +175,16 @@ def case_repro(
                  if task.agent == Producer.ReproAgent
                  and task.status == TaskStatus.completed]
     assert completed, "no ReproAgent task completed"
+    # V2 scientific-closure invariant (§H.1.4): exactly one experiment, then
+    # exactly one analysis — no task/call inflation.
+    assert len(completed) == 1, (
+        f"expected exactly 1 ReproAgent experiment, got {len(completed)}"
+    )
+    analysis = [task for task in state.tasks
+                if task.capability == "analyze_results"]
+    assert len(analysis) == 1, (
+        f"expected exactly 1 analyze_results task, got {len(analysis)}"
+    )
     unresolved = [
         task.id for task in state.tasks
         if task.required and task.status != TaskStatus.completed
