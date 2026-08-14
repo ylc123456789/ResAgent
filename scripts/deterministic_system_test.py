@@ -74,20 +74,25 @@ def run_acceptance(workspace: Path) -> dict:
     repro.status = TaskStatus.completed
     assertions.append("ReproAgent produced a registered result artifact")
 
-    # ExpAgent follow-up: a run_task inherits repository context and becomes a
-    # second ReproAgent task instead of an ExpAgent advisory task.
+    # ExpAgent follow-up: an execute_experiment action becomes a second
+    # ReproAgent task instead of an ExpAgent advisory task.
     exp._state = state
     followups = exp._actions_to_tasks([{
-        "priority": "high",
-        "type": "run_task",
+        "action_id": "verify_again",
+        "capability": "execute_experiment",
+        "objective": "run one epoch again",
         "rationale": "Verify the baseline after a code change",
-        "plan": {"kind": "run_task", "command_goal": "run one epoch again"},
+        "depends_on": [],
+        "project_ref": "project",
+        "required": True,
+        "expected_metrics": [],
+        "requires_gpu": False,
     }], source="followup-decision", next_num=state.next_task_number())
     assert len(followups) == 1
     followup = followups[0]
     assert followup.agent == Producer.ReproAgent
     state.tasks.append(followup)
-    assertions.append("Follow-up run_task routed to ReproAgent")
+    assertions.append("Follow-up execute_experiment routed to ReproAgent")
 
     # CodingAgent boundary and parent session linkage.
     coding = AgentTask(
@@ -125,7 +130,7 @@ def run_acceptance(workspace: Path) -> dict:
         id=f"task_{state.next_task_number():03d}",
         agent=Producer.ResAgent,
         kind=AgentKind.ask_user,
-        capability="request_user_input",
+        capability="ask_user",
         required=True,
         input={"question": "Accept the bounded result?"},
     )
@@ -148,6 +153,9 @@ def run_acceptance(workspace: Path) -> dict:
     assertions.append("ask_user survived save/load and resumed exactly once")
 
     # Finish gate and terminal guard.
+    # This is an engineering smoke test of module contracts, not a scientific
+    # run, so completed experiments need no scientific analysis here.
+    restored.analysis_required = False
     check = validate_finish(restored)
     assert check.allowed, check
     finish_ctrl = Controller(

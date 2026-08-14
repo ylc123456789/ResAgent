@@ -199,7 +199,7 @@ def case_env_reuse(config, workspace: Path) -> dict:
     for index, epochs in enumerate((1, 2), start=1):
         state.tasks.append(AgentTask(
             id=f"task_{index:03d}", agent=Producer.ReproAgent,
-            kind=AgentKind.repro_task, capability="run_experiment",
+            kind=AgentKind.repro_task, capability="execute_experiment",
             required=True,
             input={
                 "repo_url": "https://github.com/pytorch/examples.git",
@@ -270,7 +270,7 @@ def case_dependency_chain(config, workspace: Path) -> dict:
     )
     repro = AgentTask(
         id="task_002", agent=Producer.ReproAgent,
-        kind=AgentKind.repro_task, capability="run_experiment", required=True,
+        kind=AgentKind.repro_task, capability="execute_experiment", required=True,
         action_id="verify_value", depends_on=[coding.id], project_ref="fixture",
         input={
             "workspace_intent": "isolated",
@@ -335,7 +335,7 @@ def case_fan_in_analysis(config, workspace: Path) -> dict:
         dependencies.append(dependency)
     analysis = AgentTask(
         id="task_003", agent=Producer.ExpAgent, kind=AgentKind.advise,
-        capability="analyze_result", required=True,
+        capability="analyze_results", required=True,
         depends_on=[task.id for task in dependencies],
         input={
             "task_goal": (
