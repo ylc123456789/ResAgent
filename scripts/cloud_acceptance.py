@@ -206,8 +206,38 @@ def case_repro(
 
 
 def case_env_reuse(config, workspace: Path) -> dict:
+    # Local fixture repo (same pattern as case_dependency_chain): this case
+    # verifies environment-namespace reuse, which must not depend on GitHub
+    # reachability — the server's GitHub egress is intermittently blocked.
+    repo = workspace / "fixtures" / f"envreuse-{int(time.time())}"
+    repo.mkdir(parents=True, exist_ok=False)
+    (repo / "README.md").write_text(
+        "# Env-reuse fixture\n\nRun `python train.py --epochs N`.\n",
+        encoding="utf-8",
+    )
+    (repo / "requirements.txt").write_text("numpy\n", encoding="utf-8")
+    (repo / "train.py").write_text(
+        "import argparse, time\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('--epochs', type=int, default=1)\n"
+        "args = p.parse_args()\n"
+        "start = time.time()\n"
+        "for epoch in range(1, args.epochs + 1):\n"
+        "    acc = 0.90 + 0.02 * epoch\n"
+        "    print(f'Epoch {epoch} | Loss {1.0 / epoch:.4f} | Test Acc {acc:.4f}')\n"
+        "print(f'Final Test Acc {0.90 + 0.02 * args.epochs:.4f} | "
+        "Runtime {time.time() - start:.2f}s')\n",
+        encoding="utf-8",
+    )
+    for command in (["git", "init"],
+                    ["git", "config", "user.email", "acceptance@example.com"],
+                    ["git", "config", "user.name", "Acceptance Test"],
+                    ["git", "add", "."],
+                    ["git", "commit", "-m", "fixture"]):
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+
     state = init_run(
-        "Run two bounded MNIST experiments in one project environment.",
+        "Run two bounded experiments in one project environment.",
         workspace_root=str(workspace / "runs"), config=config,
     )
     # Synthetic scenario: fixed task graph replaces the seeded advisory task.
@@ -221,9 +251,9 @@ def case_env_reuse(config, workspace: Path) -> dict:
             kind=AgentKind.repro_task, capability="execute_experiment",
             required=True,
             input={
-                "repo_url": "https://github.com/pytorch/examples.git",
+                "repo_url": str(repo),
                 "experiment_goal": (
-                    "Run mnist/main.py on GPU with "
+                    "Run train.py with "
                     f"--epochs={epochs}; report test accuracy, loss and runtime."
                 ),
             },
