@@ -1,6 +1,6 @@
 """Conversation-layer models — independent from ResearchState by design.
 
-See docs/CONVERSATION_LAYER_DESIGN.md §4.2.
+See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.2.
 
 The conversation layer is ResAgent's front desk: it routes, clarifies, and
 presents. It never mutates ResearchState directly; the only gate into a
@@ -132,7 +132,7 @@ class ResearchBrief(BaseModel):
         return "\n".join(lines)
 
 
-# ── Sub-session index (docs/SESSION_AND_PROJECT_MODEL.md §3) ─────────────────
+# ── Sub-session index (docs/reference/SESSION_AND_PROJECT_MODEL.md §3) ─────────────────
 
 class SessionRef(BaseModel):
     """Index entry for a sub-agent session (its session.yaml card).

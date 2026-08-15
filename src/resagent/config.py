@@ -43,7 +43,7 @@ class PolicyConfig:
 
 @dataclass
 class ChatConfig:
-    """Conversation-layer settings (docs/CONVERSATION_LAYER_DESIGN.md §4.9)."""
+    """Conversation-layer settings (docs/reference/CONVERSATION_LAYER_DESIGN.md §4.9)."""
     max_tool_calls_per_turn: int = 4
     default_advance_steps: int = 3
     max_steps_per_turn: int = 5

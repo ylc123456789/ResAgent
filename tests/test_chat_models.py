@@ -1,4 +1,4 @@
-"""Tests for chat-layer models (docs/CONVERSATION_LAYER_DESIGN.md §4.2)."""
+"""Tests for chat-layer models (docs/reference/CONVERSATION_LAYER_DESIGN.md §4.2)."""
 
 from resagent.conversation.models import (
     ConvArtifactRef,

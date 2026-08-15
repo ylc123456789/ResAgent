@@ -1,6 +1,6 @@
 """Conversation persistence — append-only event log + atomic state snapshot.
 
-See docs/CONVERSATION_LAYER_DESIGN.md §4.3.
+See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.3.
 
 Layout:
     <workspace_root>/conversations/<conversation_id>/

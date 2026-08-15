@@ -1,6 +1,6 @@
 """Conversation agentic loop + REPL — the unified user entry point.
 
-See docs/CONVERSATION_LAYER_DESIGN.md §4.6.
+See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.6.
 
 Routing philosophy: there is NO intent classifier stage. The chat loop IS
 the router — the LLM chooses tools (or a direct reply) with full

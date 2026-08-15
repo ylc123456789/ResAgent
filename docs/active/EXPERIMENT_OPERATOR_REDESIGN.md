@@ -2,7 +2,7 @@
 
 **日期**: 2026-08-13
 **状态**: 经总体开发 AI 评审后修订（2026-08-13 v2）：①ExpAgent 只传逻辑引用 ②工作区来源互斥校验 ③数据集缓存写入边界修正 ④内容寻址 env 延后至里程碑二 ⑤环境所有权三段式澄清 ⑥bindings 契约先行 ⑦P3 依赖 P1+P2。两里程碑拆分见 §9
-**关联文档**: [CONVERSATION_LAYER_DESIGN.md](./CONVERSATION_LAYER_DESIGN.md)、[SESSION_AND_PROJECT_MODEL.md](./SESSION_AND_PROJECT_MODEL.md)
+**关联文档**: [CONVERSATION_LAYER_DESIGN.md](../reference/CONVERSATION_LAYER_DESIGN.md)、[SESSION_AND_PROJECT_MODEL.md](../reference/SESSION_AND_PROJECT_MODEL.md)
 **涉及模块与分工**:
 
 | 模块 | 改动量 | 负责方 |

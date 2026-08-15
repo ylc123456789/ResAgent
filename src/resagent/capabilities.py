@@ -1,6 +1,6 @@
 """Capability registry — the single source of truth for capability routing.
 
-See docs/SCIENTIFIC_ORCHESTRATION_MAINLINE_REDESIGN.md §6 / §B.
+See docs/reference/SCIENTIFIC_ORCHESTRATION_MAINLINE_REDESIGN.md §6 / §B.
 
 Both the chat router and the research controller resolve capabilities from
 this registry, so there is exactly ONE capability vocabulary and ONE

@@ -8,7 +8,7 @@
 - reproagent 手写 YAML 在多行摘要时回读截断（仅影响展示，建议后续摘要单行化）
 - reproagent `test_run_one_writes_full_logs...` 存在时序 flaky（单独跑通过）
 - ExpAgent 仓库存在未提交的 EOL 归一化 diff（2217/2217），建议提交或丢弃
-**关联文档**: [CONVERSATION_LAYER_DESIGN.md](./CONVERSATION_LAYER_DESIGN.md)（对话层）、[HANDOVER_CONVERSATION_LAYER.md](./HANDOVER_CONVERSATION_LAYER.md)
+**关联文档**: [CONVERSATION_LAYER_DESIGN.md](./CONVERSATION_LAYER_DESIGN.md)（对话层）、[HANDOVER_CONVERSATION_LAYER.md](../completed/HANDOVER_CONVERSATION_LAYER.md)
 **涉及模块与分工**:
 
 | 模块 | 改动量 | 负责方 |

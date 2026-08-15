@@ -1,6 +1,6 @@
 """Chat-layer tools — the action space of the conversation loop.
 
-See docs/CONVERSATION_LAYER_DESIGN.md §4.5.
+See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.5.
 
 Tools (8):
     Tier 1 (no confirmation): consult_expert, list_runs, inspect_run,

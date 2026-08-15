@@ -187,7 +187,7 @@ class UserDirective(BaseModel):
     """An explicit instruction from the user, injected via the chat layer.
 
     Directives persist as part of run history (auditable); the planner sees
-    the most recent ones every step. See docs/CONVERSATION_LAYER_DESIGN.md §4.7.
+    the most recent ones every step. See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.7.
     """
     text: str
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

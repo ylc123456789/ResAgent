@@ -1,6 +1,6 @@
 """Read sub-agent session index cards (session.yaml).
 
-The card FORMAT is the cross-module contract (docs/SESSION_AND_PROJECT_MODEL.md
+The card FORMAT is the cross-module contract (docs/reference/SESSION_AND_PROJECT_MODEL.md
 §3) — ResAgent reads cards itself here instead of importing sub-module code.
 """
 

@@ -1,6 +1,6 @@
 """Workspace layout helper — single source of truth for all run/task paths.
 
-See docs/ARTIFACT_AND_WORKSPACE_MANAGEMENT.md §4.2 for the target layout.
+See docs/reference/ARTIFACT_AND_WORKSPACE_MANAGEMENT.md §4.2 for the target layout.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 **日期**: 2026-08-08
 **状态**: M1–M3 已完成并验证（对话层 + 双专家咨询通路 + 立项晋升）
-**权威设计文档**: [CONVERSATION_LAYER_DESIGN.md](./CONVERSATION_LAYER_DESIGN.md)（方案与任务书以它为准，本文档只记实施现状与遗留问题）
+**权威设计文档**: [CONVERSATION_LAYER_DESIGN.md](../reference/CONVERSATION_LAYER_DESIGN.md)（方案与任务书以它为准，本文档只记实施现状与遗留问题）
 **测试**: 70 passed（31 个存量 + 39 个新增），真实 API 端到端验证通过
 
 ---

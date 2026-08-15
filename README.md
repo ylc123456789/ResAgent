@@ -28,7 +28,7 @@ CLI -> Orchestrator -> Controller (agentic loop)
 6 chat tools: consult_expert | list_runs | inspect_run | propose_research_run | start_research_run | advance_run
 
 Experts are self-describing via `agent.yaml` cards (Capability Registry).
-See docs/CONVERSATION_LAYER_DESIGN.md.
+See docs/reference/CONVERSATION_LAYER_DESIGN.md.
 
 Module path resolution: CLI arg > env var > config.yaml > importable package > vendor
 
