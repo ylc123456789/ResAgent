@@ -1,7 +1,7 @@
 # 科学编排主线重构开发方案
 
 **日期**：2026-08-14  
-**状态**：P4 稳定基线收口；V2 待实施  
+**状态**：V2 已在四仓功能分支落地；最终回归与合并待完成
 **涉及模块**：ResAgent、ExpAgent；reproagent 仅补能力卡；CodingAgent 原则上不改  
 **关联文档**：`EXPERIMENT_OPERATOR_REDESIGN.md`、`EXECUTION_CONTRACT_V1.md`、`CONVERSATION_LAYER_DESIGN.md`
 

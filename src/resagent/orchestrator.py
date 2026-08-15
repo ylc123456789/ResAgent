@@ -89,6 +89,7 @@ def build_capability_registry(config: Config, modules=None) -> CapabilityRegistr
         )
     registry = CapabilityRegistry(_resolved_registry_config(config, modules))
     registry.load()
+    registry.validate_scientific_routing()
     return registry
 
 
@@ -129,7 +130,7 @@ def build_controller(
     # paths via the single construction path (build_capability_registry).
     # In mock mode without a caller-provided registry there are no module
     # checkouts, so the adapters fall back to the frozen V2 vocabulary.
-    if registry is None and not mock:
+    if registry is None:
         registry = build_capability_registry(config, modules)
         for warning in registry.warnings:
             print(f"[registry] {warning}", file=sys.stderr)

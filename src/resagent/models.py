@@ -144,6 +144,13 @@ class AgentTask(BaseModel):
     priority: TaskPriority = TaskPriority.medium
     capability: str = ""
     required: bool = True
+    analysis_required: bool | None = Field(
+        default=None,
+        description=(
+            "Immutable analysis policy for a result-producing experiment. "
+            "None preserves compatibility with states created before V2."
+        ),
+    )
     fingerprint: str = ""
     action_id: str = ""
     depends_on: list[str] = Field(default_factory=list)  # ResAgent task ids
@@ -204,9 +211,9 @@ class ResearchState(BaseModel):
     analysis_required: bool = Field(
         default=True,
         description=(
-            "Whether terminal experiments must be covered by a completed "
-            "analyze_results task before the run can finish. Set False only "
-            "for pure engineering smoke tests (see §6.3 of the redesign doc)."
+            "Compatibility default for experiments created without a captured "
+            "task-level analysis policy. V2 experiments store the immutable "
+            "decision on AgentTask.analysis_required."
         ),
     )
     current_summary: str = ""

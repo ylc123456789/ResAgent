@@ -19,7 +19,7 @@ from ..models import (
     ActionName, AgentKind, AgentTask, DecisionRecord, Producer,
     ResearchState, RunStatus, TaskPriority, TaskStatus,
 )
-from ..capabilities import CapabilityError, V2_CAPABILITY_TO_PRODUCER
+from ..capabilities import CapabilityError
 
 
 TERMINAL_RUN_STATUSES = {RunStatus.completed, RunStatus.failed}
@@ -69,7 +69,7 @@ def dependencies_satisfied(task, state: ResearchState) -> bool:
 
 
 def resolve_action(
-    action: dict[str, Any], registry=None,
+    action: dict[str, Any], registry,
 ) -> tuple[Producer, AgentKind, str]:
     """Resolve one V2 scientific action into a ResAgent task contract.
 
@@ -83,10 +83,9 @@ def resolve_action(
     if entry is None:
         raise CapabilityError(f"unknown scientific capability {capability!r}")
 
-    if registry is not None:
-        executor = registry.resolve(capability)
-    else:
-        executor = V2_CAPABILITY_TO_PRODUCER[capability]
+    if registry is None:
+        raise CapabilityError("capability registry is required for V2 routing")
+    executor = registry.resolve(capability)
 
     kind, canonical = entry
     return executor, kind, canonical
@@ -109,28 +108,42 @@ def analysis_coverage(state: ResearchState, experiment_task_id: str) -> str:
     returned when the run is an engineering smoke test or the experiment is
     not a completed result-producing task.
     """
-    if not state.analysis_required:
-        return "not_required"
     experiment = state.find_task(experiment_task_id)
     if experiment is None or experiment.status != TaskStatus.completed:
         return "not_required"
+    if not experiment_requires_analysis(state, experiment):
+        return "not_required"
+    decision_artifacts = {
+        artifact.id for artifact in state.artifacts
+        if artifact.type.value == "scientific_decision"
+        and artifact.producer == Producer.ExpAgent
+    }
     for task in state.tasks:
         if (
             task.agent == Producer.ExpAgent
             and task.capability == "analyze_results"
             and task.status == TaskStatus.completed
             and experiment_task_id in task.depends_on
+            and any(item in decision_artifacts for item in task.artifacts)
         ):
             return "covered"
     return "missing"
 
 
-def _uncovered_required_experiments(state: ResearchState) -> list[str]:
-    """Completed required experiments whose results are not yet analyzed."""
+def experiment_requires_analysis(
+    state: ResearchState, experiment_task: AgentTask,
+) -> bool:
+    """Return the immutable analysis policy captured for one experiment."""
+    if experiment_task.analysis_required is not None:
+        return experiment_task.analysis_required
+    return state.analysis_required
+
+
+def _uncovered_completed_experiments(state: ResearchState) -> list[str]:
+    """Completed experiments whose captured policy requires analysis."""
     return [
         task.id for task in experiment_tasks(state)
         if task.status == TaskStatus.completed
-        and task.required
         and analysis_coverage(state, task.id) == "missing"
     ]
 
@@ -146,9 +159,9 @@ def ensure_analysis_coverage(
     an LLM suggestion. Returns the new task, or None if coverage already
     exists or analysis is not required.
     """
-    if not state.analysis_required:
-        return None
     if experiment_task.capability not in {"execute_experiment", "reproduce_experiment"}:
+        return None
+    if not experiment_requires_analysis(state, experiment_task):
         return None
     if analysis_coverage(state, experiment_task.id) != "missing":
         return None
@@ -163,7 +176,10 @@ def ensure_analysis_coverage(
     artifact_ids = sorted(experiment_task.artifacts)
     fingerprint = task_fingerprint(
         Producer.ExpAgent, "analyze_results",
-        {"depends_on_artifacts": artifact_ids},
+        {
+            "experiment_task_id": experiment_task.id,
+            "depends_on_artifacts": artifact_ids,
+        },
     )
     if state.find_task_by_fingerprint(fingerprint) is not None:
         return None
@@ -251,7 +267,7 @@ def validate_finish(state: ResearchState) -> FinishCheck:
     )
     if unresolved:
         return FinishCheck(False, "required tasks are unresolved", unresolved)
-    uncovered = _uncovered_required_experiments(state)
+    uncovered = _uncovered_completed_experiments(state)
     if uncovered:
         return FinishCheck(
             False,

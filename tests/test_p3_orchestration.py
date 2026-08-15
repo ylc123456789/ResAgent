@@ -4,6 +4,7 @@ import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
+from tests.v2_registry import make_registry
 from resagent.adapters.expagent.task_conversion import actions_to_tasks
 from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.controller import Controller
@@ -125,7 +126,7 @@ def test_reproduce_patch_run_graph_routes_three_tasks(tmp_path):
             "depends_on": ["patch"], "project_ref": "project", "required": True,
             "expected_metrics": [], "requires_gpu": False,
         },
-    ], state, "decision", 1)
+    ], state, "decision", 1, registry=make_registry())
 
     assert issues == []
     assert [task.agent for task in tasks] == [
@@ -148,7 +149,7 @@ def test_reproduce_experiment_carries_action_repo(tmp_path):
             "repo_url": "https://github.com/org/project.git", "paper_url": "",
             "expected_metrics": [],
         },
-    ], state, "decision", 1)
+    ], state, "decision", 1, registry=make_registry())
 
     assert issues == []
     assert [task.agent for task in tasks] == [Producer.ReproAgent]
@@ -175,7 +176,7 @@ def test_goal_local_repo_routes_execute_experiment(tmp_path):
             "depends_on": ["first"], "project_ref": "project", "required": True,
             "expected_metrics": [], "requires_gpu": False,
         },
-    ], state, "decision", 1)
+    ], state, "decision", 1, registry=make_registry())
 
     assert issues == []
     assert len(tasks) == 2
@@ -203,7 +204,7 @@ def test_ambiguous_goal_yields_empty_workspace(tmp_path):
             "project_ref": "project", "required": True,
             "expected_metrics": [], "requires_gpu": False,
         },
-    ], state, "decision", 1)
+    ], state, "decision", 1, registry=make_registry())
     assert issues == []
     assert tasks[0].input["workspace_path"] == ""
 
@@ -230,7 +231,7 @@ def test_reproduce_patch_experiment_chain_reuses_registered_resources(tmp_path):
             "depends_on": ["patch"], "project_ref": "project", "required": True,
             "expected_metrics": [], "requires_gpu": False,
         },
-    ], state, "decision", 1)
+    ], state, "decision", 1, registry=make_registry())
     assert issues == []
     state.tasks.extend(tasks)
     setup, coding, experiment = tasks
@@ -240,7 +241,7 @@ def test_reproduce_patch_experiment_chain_reuses_registered_resources(tmp_path):
             PlannedAction(ActionName.call_coding_agent, {"task_id": coding.id}),
             PlannedAction(ActionName.call_repro_agent, {"task_id": experiment.id}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=ReproAgentAdapter(mock=True),
     )
@@ -353,7 +354,7 @@ def test_completed_with_warnings_is_not_stored_as_an_error(tmp_path):
         planner=ScriptedPlanner([
             PlannedAction(ActionName.call_repro_agent, {"task_id": task.id}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=WarningRepro(),
     )
@@ -390,7 +391,7 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
             PlannedAction(ActionName.call_coding_agent, {"task_id": "task_002"}),
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=operator,
     )
@@ -433,7 +434,7 @@ def test_blocked_operator_without_repair_context_remains_error(tmp_path):
         planner=ScriptedPlanner([
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=RepairableRepro(),
     )

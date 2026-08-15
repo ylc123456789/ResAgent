@@ -299,7 +299,7 @@ outputs:
   - experiment_plan
   - recommended_actions
 entrypoints:
-  python_api: experiment_designer.advisor:advise
+  python_api: experiment_designer.agent:advise
   cli: expagent advise
 ```
 

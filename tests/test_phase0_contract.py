@@ -57,7 +57,7 @@ def test_persisted_model_field_contracts() -> None:
     ]
     assert list(AgentTask.model_fields) == [
         "id", "source", "agent", "kind", "status", "priority", "capability",
-        "required", "fingerprint", "action_id", "depends_on", "project_ref",
+        "required", "analysis_required", "fingerprint", "action_id", "depends_on", "project_ref",
         "input", "artifacts", "attempts", "error", "warnings",
     ]
     assert list(Artifact.model_fields) == [

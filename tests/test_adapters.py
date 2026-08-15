@@ -10,6 +10,7 @@ from resagent.models import (
     Artifact, ArtifactType,
 )
 from resagent.adapters.expagent import ExpAgentAdapter
+from tests.v2_registry import make_registry
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.persistence.workspace import WorkspaceLayout
@@ -29,7 +30,7 @@ def _make_layout():
 
 class TestExpAgentAdapter:
     def test_mock_advise(self):
-        adapter = ExpAgentAdapter(mock=True)
+        adapter = ExpAgentAdapter(mock=True, registry=make_registry())
         state = _make_state()
         result = adapter.advise(state, _make_layout())
 
@@ -41,7 +42,7 @@ class TestExpAgentAdapter:
         )
 
     def test_mock_creates_tasks(self):
-        adapter = ExpAgentAdapter(mock=True)
+        adapter = ExpAgentAdapter(mock=True, registry=make_registry())
         state = _make_state()
         result = adapter.advise(state, _make_layout())
 

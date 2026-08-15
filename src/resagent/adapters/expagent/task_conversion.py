@@ -19,7 +19,8 @@ from .dependency_graph import dependency_graph_issues
 
 
 def actions_to_tasks(
-    actions: list[dict], state, source: str, next_num: int, registry=None,
+    actions: list[dict], state, source: str, next_num: int, registry,
+    analysis_required: bool | None = None,
 ) -> tuple[list[AgentTask], list[str]]:
     """Convert one validated ExpAgent V2 action graph into ResAgent tasks."""
     issues = dependency_graph_issues(actions)
@@ -82,6 +83,12 @@ def actions_to_tasks(
             priority=TaskPriority.medium,
             capability=canonical,
             required=bool(action.get("required", True)),
+            analysis_required=(
+                bool(analysis_required)
+                if capability in {"execute_experiment", "reproduce_experiment"}
+                and analysis_required is not None
+                else None
+            ),
             fingerprint=fingerprint,
             action_id=action_id,
             project_ref=str(action.get("project_ref", "")).strip(),

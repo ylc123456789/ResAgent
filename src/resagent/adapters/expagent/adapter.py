@@ -92,12 +92,17 @@ class ExpAgentAdapter:
         )
 
         self._state = state  # so inference helpers can access state
-        # The decision's analysis_required flag governs the finish gate.
-        state.analysis_required = bool(raw.get("analysis_required", True))
+        decision_analysis_required = bool(raw.get("analysis_required", True))
+        # The initial advisory sets the run-level compatibility default. Each
+        # experiment task captures this decision's policy during conversion,
+        # so later consultations cannot rewrite historical closure rules.
+        if task is not None and task.action_id == "initial_consult":
+            state.analysis_required = decision_analysis_required
         tasks = self._actions_to_tasks(
             raw.get("recommended_actions", []),
             source=artifact.id,
             next_num=state.next_task_number(),
+            analysis_required=decision_analysis_required,
         )
         if self._normalization_issues:
             raw["_normalization_issues"] = self._normalization_issues
@@ -336,11 +341,13 @@ class ExpAgentAdapter:
     # ── task conversion ───────────────────────────────────────────────────
 
     def _actions_to_tasks(
-        self, actions: list[dict], source: str, next_num: int
+        self, actions: list[dict], source: str, next_num: int,
+        analysis_required: bool | None = None,
     ) -> list[AgentTask]:
         """Convert one validated ExpAgent action graph into ResAgent tasks."""
         tasks, self._normalization_issues = actions_to_tasks(
             actions, self._state, source, next_num, registry=self.registry,
+            analysis_required=analysis_required,
         )
         return tasks
 

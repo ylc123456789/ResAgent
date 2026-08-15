@@ -17,6 +17,8 @@ import yaml
 
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
+from resagent.config import load_config
+from resagent.orchestrator import build_capability_registry
 from resagent.adapters.reproagent import ReproAgentAdapter
 from resagent.controller import Controller
 from resagent.models import (
@@ -24,7 +26,7 @@ from resagent.models import (
 )
 from resagent.controller.planner import PlannedAction
 from resagent.persistence.state import init_state, load_state, save_state, submit_user_response
-from resagent.controller.contracts import validate_finish
+from resagent.controller.contracts import experiment_tasks, validate_finish
 from resagent.persistence.workspace import WorkspaceLayout
 
 
@@ -57,7 +59,8 @@ def run_acceptance(workspace: Path) -> dict:
     assertions: list[str] = []
 
     # ExpAgent boundary: create an initial reproduction plan.
-    exp = ExpAgentAdapter(mock=True)
+    registry = build_capability_registry(load_config())
+    exp = ExpAgentAdapter(mock=True, registry=registry)
     initial = exp.advise(state, layout)
     state.artifacts.append(initial["artifact"])
     repro = next(task for task in initial["tasks"]
@@ -156,6 +159,8 @@ def run_acceptance(workspace: Path) -> dict:
     # This is an engineering smoke test of module contracts, not a scientific
     # run, so completed experiments need no scientific analysis here.
     restored.analysis_required = False
+    for experiment in experiment_tasks(restored):
+        experiment.analysis_required = False
     check = validate_finish(restored)
     assert check.allowed, check
     finish_ctrl = Controller(

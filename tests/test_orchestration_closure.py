@@ -17,6 +17,7 @@ from resagent.controller.planner import PlannedAction, Planner, PlannerError
 from resagent.persistence.state import init_state, load_state, save_state, submit_user_response
 from resagent.persistence.workspace import WorkspaceLayout
 from resagent.controller.contracts import allowed_action_candidates
+from tests.v2_registry import make_registry
 
 
 class ScriptedPlanner:
@@ -37,7 +38,7 @@ class ScriptedPlanner:
 def _controller(planner):
     return Controller(
         planner=planner,
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=ReproAgentAdapter(mock=True),
     )
@@ -147,7 +148,7 @@ def test_two_repro_tasks_share_run_environment_namespace(tmp_path, monkeypatch):
 
 def test_expagent_deduplicates_equivalent_recommendations(tmp_path):
     state = init_state("dedupe", str(tmp_path), "goal")
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     action = {
         "action_id": "repro", "capability": "reproduce_experiment",
@@ -171,7 +172,7 @@ def test_followup_experiment_inherits_workspace_from_prior_repro(tmp_path):
                "experiment_goal": "2 epochs", "workspace_path": "/prior/repo"},
     )
     state.tasks.append(first)
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     followup = adapter._actions_to_tasks([{
         "action_id": "run_more", "capability": "execute_experiment",
@@ -191,7 +192,7 @@ def test_same_decision_dependency_chain_routes_and_orders_tasks(tmp_path):
     repo.mkdir()
     (repo / "train.py").write_text("print('original')\n", encoding="utf-8")
     state = init_state("dependency-chain", str(tmp_path), f"Modify and run {repo}")
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     actions = [
         {
@@ -222,7 +223,7 @@ def test_every_action_requires_its_own_action_id(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     state = init_state("optional-dependent-id", str(tmp_path), "goal")
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     tasks = adapter._actions_to_tasks([
         {
@@ -254,7 +255,7 @@ def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
         "inferred-workspace", str(tmp_path),
         f"Modify {script} and then run it",
     )
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     tasks = adapter._actions_to_tasks([
         {
@@ -279,7 +280,7 @@ def test_dependent_run_inherits_workspace_inferred_for_prerequisite(tmp_path):
 
 def test_dependency_cycle_is_rejected_atomically(tmp_path):
     state = init_state("dependency-cycle", str(tmp_path), "goal")
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     tasks = adapter._actions_to_tasks([
         {"action_id": "a", "capability": "modify_code", "objective": "a",
@@ -343,7 +344,7 @@ def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):
         planner=ScriptedPlanner([
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro_task.id}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=MaterializingReproAgent(),
     )
@@ -352,7 +353,7 @@ def test_completed_repro_workspace_is_available_to_followup_coding(tmp_path):
     assert observation.result == "ok"
     assert repro_task.input["workspace_path"] == str(repo)
 
-    adapter = ExpAgentAdapter(mock=True)
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
     adapter._state = state
     followup = adapter._actions_to_tasks([{
         "action_id": "instrument", "capability": "modify_code",
@@ -406,7 +407,7 @@ def test_retry_replaces_stale_attempt_artifact(tmp_path):
             PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
             PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
         ]),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=FlakyReproAgent(),
     )
@@ -567,6 +568,7 @@ def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
             id="task_002", agent=Producer.ExpAgent, kind=AgentKind.advise,
             capability="analyze_results", required=True,
             status=TaskStatus.completed, depends_on=["task_001"],
+            artifacts=["a2"],
             input={"objective": "Interpret the bounded run"},
         ),
         AgentTask(
@@ -578,6 +580,10 @@ def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
     state.artifacts.append(Artifact(
         id="a1", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
         path="result.md",
+    ))
+    state.artifacts.append(Artifact(
+        id="a2", type=ArtifactType.scientific_decision,
+        producer=Producer.ExpAgent, path="decision.json",
     ))
     planner = ScriptedPlanner([
         PlannedAction(ActionName.finish, {"summary": "Bounded goal satisfied."}),

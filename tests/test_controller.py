@@ -10,6 +10,7 @@ from resagent.persistence.state import init_state, save_state
 from resagent.controller.planner import Planner
 from resagent.controller import Controller
 from resagent.adapters.expagent import ExpAgentAdapter
+from tests.v2_registry import make_registry
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.reproagent import ReproAgentAdapter
 
@@ -17,7 +18,7 @@ from resagent.adapters.reproagent import ReproAgentAdapter
 def _build_mock_controller():
     return Controller(
         planner=Planner(mock=True),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=ReproAgentAdapter(mock=True),
     )
@@ -100,7 +101,7 @@ def test_expagent_task_is_completed_and_bound_to_its_artifact(tmp_path):
     state.tasks.append(task)
     ctrl = Controller(
         planner=_FixedPlanner(PlannedAction(ActionName.call_exp_agent, {"task_id": task.id})),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=ReproAgentAdapter(mock=True),
     )
@@ -130,7 +131,7 @@ def test_transient_repro_failure_returns_task_to_pending_queue(tmp_path):
     state.tasks.append(task)
     ctrl = Controller(
         planner=_FixedPlanner(PlannedAction(ActionName.call_repro_agent, {"task_id": task.id})),
-        expagent=ExpAgentAdapter(mock=True),
+        expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
         codingagent=CodingAgentAdapter(mock=True),
         reproagent=FailingRepro(),
     )
@@ -168,7 +169,7 @@ def test_paused_run_never_calls_planner(tmp_path):
     state = init_state("paused-run", str(tmp_path), "Goal")
     state.run.status = RunStatus.paused
     state.pending_question = PendingQuestion(question_id="q_001", text="Proceed?")
-    ctrl = Controller(PanicPlanner(), ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True))
+    ctrl = Controller(PanicPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()), CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True))
 
     obs = ctrl.step(state)
 
@@ -208,7 +209,7 @@ def test_transient_retry_runs_attempt_two_before_new_planning(tmp_path):
     state.tasks.append(task)
     planner = OnePlanningCall(PlannedAction(ActionName.call_repro_agent, {"task_id": task.id}))
     repro = OneRetryRepro()
-    ctrl = Controller(planner, ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True), repro)
+    ctrl = Controller(planner, ExpAgentAdapter(mock=True, registry=make_registry()), CodingAgentAdapter(mock=True), repro)
 
     ctrl.step(state)
     ctrl.step(state)
@@ -228,7 +229,7 @@ def test_step_limit_is_persisted_as_interrupted(tmp_path):
         _FixedPlanner(PlannedAction(
             ActionName.call_coding_agent, {"task_id": "missing"},
         )),
-        ExpAgentAdapter(mock=True), CodingAgentAdapter(mock=True),
+        ExpAgentAdapter(mock=True, registry=make_registry()), CodingAgentAdapter(mock=True),
         ReproAgentAdapter(mock=True),
     )
 

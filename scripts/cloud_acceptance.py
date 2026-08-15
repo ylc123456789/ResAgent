@@ -18,6 +18,7 @@ from resagent.models import (
     RunStatus, TaskStatus,
 )
 from resagent.orchestrator import build_controller, init_run
+from resagent.integrations.module_paths import resolve_all
 from resagent.controller.planner import PlannedAction
 from resagent.persistence.state import save_state
 
@@ -511,6 +512,61 @@ CASES = {"coding": case_coding, "repro": case_repro,
          "env-reuse": case_env_reuse}
 
 
+def _git_metadata(path: Path) -> dict:
+    """Return auditable Git identity for one acceptance dependency."""
+    requested_path = path.resolve()
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args], cwd=requested_path, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    repository_root = git("rev-parse", "--show-toplevel")
+    return {
+        "path": repository_root or str(requested_path),
+        "commit": git("rev-parse", "HEAD"),
+        "branch": git("branch", "--show-current"),
+        "dirty": bool(git("status", "--porcelain")),
+        "remote": git("remote", "get-url", "origin"),
+    }
+
+
+def _acceptance_provenance(config, args, workspace: Path) -> dict:
+    modules = resolve_all(
+        cli_expagent=config.cmd_expagent,
+        cli_codingagent=config.cmd_codingagent,
+        cli_reproagent=config.cmd_reproagent,
+        config_expagent=config.agents.expagent,
+        config_codingagent=config.agents.codingagent,
+        config_reproagent=config.agents.reproagent,
+    )
+    repositories = {
+        "ResAgent": _git_metadata(Path(__file__).resolve().parents[1]),
+    }
+    for name, path_text in (
+        ("ExpAgent", modules.expagent.path),
+        ("CodingAgent", modules.codingagent.path),
+        ("reproagent", modules.reproagent.path),
+    ):
+        if path_text and Path(path_text).exists():
+            repositories[name] = _git_metadata(Path(path_text))
+    return {
+        "repositories": repositories,
+        "config_path": str(Path(args.config).expanduser().resolve()) if args.config else "",
+        "model": config.llm.model,
+        "api_base": config.llm.api_base,
+        "mirror_profile": config.policy.repro_mirror_profile,
+        "workspace": str(workspace),
+        "repro_local_repo": (
+            str(Path(args.repro_local_repo).expanduser().resolve())
+            if args.repro_local_repo else ""
+        ),
+        "dataset_cache": config.policy.repro_dataset_cache,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -527,7 +583,12 @@ def main() -> int:
     workspace = Path(args.workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     selected = list(CASES) if args.case == "all" else [args.case]
-    report = {"status": "passed", "cases": {}, "started_at": time.time()}
+    report = {
+        "status": "passed",
+        "cases": {},
+        "started_at": time.time(),
+        "provenance": _acceptance_provenance(config, args, workspace),
+    }
     try:
         for name in selected:
             started = time.monotonic()

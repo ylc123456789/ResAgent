@@ -623,7 +623,7 @@ resolved source path
 MVP 可先用 Python API：
 
 ```python
-from experiment_designer.advisor import advise
+from experiment_designer.agent import advise
 from experiment_designer.models import AdvisorContext
 ```
 

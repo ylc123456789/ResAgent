@@ -86,13 +86,26 @@ def test_resolve_conflicting_owners_fails_closed(tmp_path):
         reg.resolve("analyze_results")
 
 
-def test_resolve_misdeclared_owner_fails_closed(tmp_path):
+def test_card_owner_is_the_routing_source(tmp_path):
     cfg = Config()
-    # codingagent declares modify_code; expagent wrongly also claims it.
+    # There is no second capability->executor table overriding the card owner.
     cfg.agents.expagent = _module(tmp_path, "expagent", "modify_code")
     reg = _registry(cfg)
-    with pytest.raises(CapabilityError):
-        reg.resolve("modify_code")
+    assert reg.resolve("modify_code") == Producer.ExpAgent
+
+
+def test_complete_registry_validation_fails_before_dispatch(tmp_path):
+    cfg = Config()
+    cfg.agents.expagent = _module(
+        tmp_path, "expagent", "analyze_results, search_literature",
+    )
+    reg = _registry(cfg)
+    with pytest.raises(CapabilityError, match="invalid scientific capability registry"):
+        reg.validate_scientific_routing()
+
+
+def test_complete_registry_validation_accepts_all_cards(tmp_path):
+    _configured_registry(tmp_path).validate_scientific_routing()
 
 
 def test_controller_summary_lists_vocabulary(tmp_path):

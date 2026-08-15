@@ -45,19 +45,6 @@ V2_CAPABILITIES = (
     "ask_user",
 )
 
-# Frozen capability -> executor routing. This is the deterministic backbone
-# the registry validates against. `ask_user` is a ResAgent built-in that never
-# needs a module card; every other capability must be declared by exactly one
-# sub-module whose card name maps back to this executor.
-V2_CAPABILITY_TO_PRODUCER: dict[str, Producer] = {
-    "modify_code": Producer.CodingAgent,
-    "reproduce_experiment": Producer.ReproAgent,
-    "execute_experiment": Producer.ReproAgent,
-    "analyze_results": Producer.ExpAgent,
-    "search_literature": Producer.ExpAgent,
-    "ask_user": Producer.ResAgent,
-}
-
 # Module card name -> Producer. ResAgent's own ask_user is built-in.
 _MODULE_TO_PRODUCER: dict[str, Producer] = {
     "expagent": Producer.ExpAgent,
@@ -93,6 +80,16 @@ BUILTIN_CARDS: list[dict[str, Any]] = [
 _ALLOWED_SIDE_EFFECTS = {"none", "workspace", "workspace_and_environment"}
 
 
+def _find_agent_card(module_path: Path) -> Path | None:
+    """Find a module card from either a repo root or an import package path."""
+    candidates = [module_path, *list(module_path.parents)[:3]]
+    for candidate in candidates:
+        card = candidate / "agent.yaml"
+        if card.is_file():
+            return card
+    return None
+
+
 class CapabilityRegistry:
     """Loads and serves ExpertCards; resolves capabilities deterministically."""
 
@@ -117,8 +114,8 @@ class CapabilityRegistry:
 
         # repo agent.yaml override (highest precedence)
         for module_path in self._module_paths():
-            card_path = Path(module_path) / "agent.yaml"
-            if card_path.exists():
+            card_path = _find_agent_card(Path(module_path))
+            if card_path is not None:
                 self._load_repo_card(card_path)
 
     def _module_paths(self) -> list[str]:
@@ -174,15 +171,13 @@ class CapabilityRegistry:
         """Deterministically resolve a scientific capability to its executor.
 
         `ask_user` is a ResAgent built-in. Every other capability must be
-        declared by exactly one sub-module, and that owner must match the
-        frozen V2 vocabulary; zero owners, multiple owners, or a misdeclared
-        owner are all fail-closed config errors — never guessed by the LLM.
+        declared by exactly one available sub-module. Routing is derived from
+        that card owner, never from a second capability-to-executor table.
         """
         if capability == "ask_user":
             return Producer.ResAgent
 
-        expected = V2_CAPABILITY_TO_PRODUCER.get(capability)
-        if expected is None:
+        if capability not in V2_CAPABILITIES:
             raise CapabilityError(f"unknown capability {capability!r}")
 
         owners = [
@@ -199,18 +194,32 @@ class CapabilityRegistry:
                 f"{sorted(owners)}"
             )
         owner = owners[0]
+        card = self.cards[owner]
+        if card.status != "available":
+            raise CapabilityError(
+                f"capability '{capability}' owner '{owner}' is {card.status!r}"
+            )
         producer = _MODULE_TO_PRODUCER.get(owner)
         if producer is None:
             raise CapabilityError(
                 f"capability '{capability}' owner '{owner}' has no Producer mapping"
             )
-        if producer != expected:
-            raise CapabilityError(
-                f"capability '{capability}' is declared by '{owner}' "
-                f"({producer.value}) but the V2 vocabulary assigns it to "
-                f"{expected.value}"
-            )
         return producer
+
+    def validate_scientific_routing(self) -> None:
+        """Validate the complete V2 registry before a production run starts."""
+        issues: list[str] = []
+        for capability in V2_CAPABILITIES:
+            if capability == "ask_user":
+                continue
+            try:
+                self.resolve(capability)
+            except CapabilityError as exc:
+                issues.append(str(exc))
+        if issues:
+            raise CapabilityError(
+                "invalid scientific capability registry: " + "; ".join(issues)
+            )
 
     def capability_owner(self, capability: str) -> str:
         """Return the module card name that owns a capability ("" if none)."""

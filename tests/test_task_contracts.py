@@ -35,6 +35,7 @@ def _experiment(task_id="task_001", status=TaskStatus.completed) -> AgentTask:
 # ── capability routing ──────────────────────────────────────────────────────
 
 def test_resolve_action_routes_all_six_capabilities():
+    registry = _registry()
     cases = {
         "modify_code": (Producer.CodingAgent, AgentKind.coding_task, "modify_code"),
         "reproduce_experiment": (Producer.ReproAgent, AgentKind.repro_task, "reproduce_experiment"),
@@ -44,14 +45,20 @@ def test_resolve_action_routes_all_six_capabilities():
         "ask_user": (Producer.ResAgent, AgentKind.ask_user, "ask_user"),
     }
     for capability, expected in cases.items():
-        assert resolve_action({"capability": capability}) == expected
+        assert resolve_action({"capability": capability}, registry) == expected
 
 
 def test_resolve_action_unknown_capability_fails_closed():
+    registry = _registry()
     with pytest.raises(CapabilityError):
-        resolve_action({"capability": "run_task"})
+        resolve_action({"capability": "run_task"}, registry)
     with pytest.raises(CapabilityError):
-        resolve_action({})
+        resolve_action({}, registry)
+
+
+def test_resolve_action_requires_registry():
+    with pytest.raises(CapabilityError, match="registry is required"):
+        resolve_action({"capability": "modify_code"}, None)
 
 
 def test_registry_and_frozen_vocabulary_agree():
@@ -179,6 +186,24 @@ def test_analysis_coverage_missing_then_covered(tmp_path):
     assert analysis_coverage(state, "task_001") == "covered"
 
 
+def test_completed_analysis_without_decision_artifact_is_not_coverage(tmp_path):
+    state = _state(tmp_path)
+    state.tasks.extend([
+        _experiment(),
+        AgentTask(
+            id="task_002", agent=Producer.ExpAgent, kind=AgentKind.advise,
+            capability="analyze_results", status=TaskStatus.completed,
+            depends_on=["task_001"], artifacts=[],
+        ),
+    ])
+    state.artifacts.append(Artifact(
+        id="a1", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.md",
+    ))
+    assert analysis_coverage(state, "task_001") == "missing"
+    assert not validate_finish(state).allowed
+
+
 def test_analysis_coverage_not_required_for_smoke(tmp_path):
     state = _state(tmp_path, analysis_required=False)
     state.tasks.append(_experiment())
@@ -231,3 +256,30 @@ def test_smoke_test_does_not_block_finish(tmp_path):
         path="result.md",
     ))
     assert validate_finish(state).allowed
+
+
+def test_completed_optional_experiment_still_requires_analysis(tmp_path):
+    state = _state(tmp_path)
+    experiment = _experiment()
+    experiment.required = False
+    experiment.analysis_required = True
+    state.tasks.append(experiment)
+    state.artifacts.append(Artifact(
+        id="a1", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.md",
+    ))
+    check = validate_finish(state)
+    assert not check.allowed
+    assert check.task_ids == (experiment.id,)
+
+
+def test_task_analysis_policy_is_not_changed_by_run_default(tmp_path):
+    state = _state(tmp_path, analysis_required=False)
+    experiment = _experiment()
+    experiment.analysis_required = True
+    state.tasks.append(experiment)
+    state.artifacts.append(Artifact(
+        id="a1", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.md",
+    ))
+    assert analysis_coverage(state, experiment.id) == "missing"
