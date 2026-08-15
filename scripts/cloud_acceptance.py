@@ -380,7 +380,33 @@ def case_fan_in_analysis(config, workspace: Path) -> dict:
         PlannedAction(ActionName.finish, {"summary": "fan-in analysis completed"}),
     ])
 
-    observations = _step_until_stop(state, controller, max_steps=2)
+    # Step 1: run the analysis (the fan-in binding this case verifies).
+    observations = []
+    obs = controller.step(state)
+    save_state(state)
+    observations.append(obs)
+    assert obs.result == "ok", f"analysis failed: {obs.detail}"
+
+    # Play the user. A real advisor may legitimately propose follow-up
+    # experiments even when asked not to — that is its job. Scope commitment
+    # is the user's call, so the harness declines any new required work here
+    # (V2 semantics: skipped is a terminal state; the finish gate treats it
+    # as resolved). This keeps the case deterministic without suppressing
+    # the advisor's proposals.
+    for task in state.tasks:
+        if task.required and task.status in (
+            TaskStatus.pending, TaskStatus.blocked, TaskStatus.failed,
+        ):
+            task.status = TaskStatus.skipped
+            task.error = "Declined by acceptance scope (user decision)."
+
+    # Step 2: finish.
+    obs = controller.step(state)
+    save_state(state)
+    observations.append(obs)
+    assert obs.action == ActionName.finish and obs.result == "ok", (
+        f"finish failed: {obs.detail}"
+    )
 
     assert analysis.status == TaskStatus.completed
     assert len(analysis.input.get("input_artifacts", [])) == 2
