@@ -1,5 +1,7 @@
 # System Interaction Architecture Proposal
 
+**状态**：SUPERSEDED。其中 ConversationState/ResearchState 分离与 Capability Descriptor 思想被保留，但前置 `IntakeRouter` 已被对话 agentic loop 的工具选择取代。现行对话契约见 [`../reference/CONVERSATION_LAYER_DESIGN.md`](../reference/CONVERSATION_LAYER_DESIGN.md)。
+
 ## 1. 背景
 
 当前系统已经有三个相对成熟的模块：

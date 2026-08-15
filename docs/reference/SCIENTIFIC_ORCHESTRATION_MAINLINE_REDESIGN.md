@@ -3,7 +3,7 @@
 **日期**：2026-08-14  
 **状态**：已实施并通过云端全量验收（5/5），已合并并打 tag `v2-validated-2026-08-15`
 **涉及模块**：ResAgent、ExpAgent；reproagent 仅补能力卡；CodingAgent 原则上不改  
-**关联文档**：`EXPERIMENT_OPERATOR_REDESIGN.md`、`EXECUTION_CONTRACT_V1.md`、`CONVERSATION_LAYER_DESIGN.md`
+**关联文档**：[`EXPERIMENT_OPERATOR_REDESIGN.md`](../completed/EXPERIMENT_OPERATOR_REDESIGN.md)、[`EXECUTION_CONTRACT_V1.md`](../completed/EXECUTION_CONTRACT_V1.md)、[`CONVERSATION_LAYER_DESIGN.md`](./CONVERSATION_LAYER_DESIGN.md)
 
 ## 1. 目标
 

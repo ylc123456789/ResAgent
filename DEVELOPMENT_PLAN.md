@@ -1,4 +1,6 @@
-﻿# ResAgent 开发文档
+﻿# ResAgent 项目章程
+
+**状态**：常驻的模块边界与设计原则。当前任务、现行契约和历史档案的唯一入口是 [`docs/README.md`](docs/README.md)。本文中的 MVP 示例仅用于解释边界，不代表当前开发进度。
 
 ## 1. 模块定位
 
@@ -14,7 +16,7 @@ ResAgent = Research Project Manager / Orchestrator
 
 ```text
 ExpAgent      科学顾问 / 实验科学家
-ReproAgent    复现实验工程师
+ReproAgent    实验操作员（环境准备、实验执行与证据记录）
 CodingAgent   程序员 / repo-local coding agent
 ```
 

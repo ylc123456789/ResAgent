@@ -1,7 +1,7 @@
 # 实验操作员重定位与执行层重构 — 开发文档
 
 **日期**: 2026-08-13
-**状态**: 经总体开发 AI 评审后修订（2026-08-13 v2）：①ExpAgent 只传逻辑引用 ②工作区来源互斥校验 ③数据集缓存写入边界修正 ④内容寻址 env 延后至里程碑二 ⑤环境所有权三段式澄清 ⑥bindings 契约先行 ⑦P3 依赖 P1+P2。两里程碑拆分见 §9
+**状态**: 里程碑一 P0-P4 已完成，已通过 V2 云端全量验收并合并（tag `v2-validated-2026-08-15`）。本文作为里程碑一的设计与实施档案；原 §9 的里程碑二已抽离为 [`../active/RESOURCE_MANAGEMENT_MILESTONE_2.md`](../active/RESOURCE_MANAGEMENT_MILESTONE_2.md)。
 **关联文档**: [CONVERSATION_LAYER_DESIGN.md](../reference/CONVERSATION_LAYER_DESIGN.md)、[SESSION_AND_PROJECT_MODEL.md](../reference/SESSION_AND_PROJECT_MODEL.md)
 **涉及模块与分工**:
 

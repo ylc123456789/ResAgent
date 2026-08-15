@@ -8,7 +8,7 @@ the research lifecycle by coordinating three specialist agents:
 |-------|------|------------------------|
 | **ExpAgent** | Scientific advisor | Analyze problems, design experiments, evaluate results |
 | **CodingAgent** | Programmer | Make scoped code changes in specific repositories |
-| **ReproAgent** | Reproduction engineer | Reproduce paper results from published repositories |
+| **ReproAgent** | Experiment operator | Prepare environments and execute reproducible experiments |
 
 ## Architecture
 
@@ -28,7 +28,8 @@ CLI -> Orchestrator -> Controller (agentic loop)
 6 chat tools: consult_expert | list_runs | inspect_run | propose_research_run | start_research_run | advance_run
 
 Experts are self-describing via `agent.yaml` cards (Capability Registry).
-See docs/reference/CONVERSATION_LAYER_DESIGN.md.
+See `docs/README.md` for the documentation index and
+`docs/reference/CONVERSATION_LAYER_DESIGN.md` for the conversation contract.
 
 Module path resolution: CLI arg > env var > config.yaml > importable package > vendor
 
@@ -53,5 +54,5 @@ resagent status --workspace runs/ --run-id <id>
 ## Development
 
 ```bash
-pytest -q          # 31 tests
+pytest -q
 ```

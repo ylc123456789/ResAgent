@@ -1,8 +1,8 @@
 # 对话层与多专家注册架构 — 开发文档
 
 **日期**: 2026-08-08
-**状态**: 方案已确认，待实施
-**关联文档**: [SYSTEM_INTERACTION_ARCHITECTURE.md](./SYSTEM_INTERACTION_ARCHITECTURE.md)（本文档取代其中的 IntakeRouter 方案，保留 ConversationState/ResearchState 分离与 Capability Descriptor 思想，差异说明见附录 C）
+**状态**: 已实施并纳入 V2 验收基线（tag `v2-validated-2026-08-15`）。本文的契约与边界为常驻参考；任务书和里程碑章节保留为实施记录。
+**关联文档**: [SYSTEM_INTERACTION_ARCHITECTURE.md](../completed/SYSTEM_INTERACTION_ARCHITECTURE.md)（本文档取代其中的 IntakeRouter 方案，保留 ConversationState/ResearchState 分离与 Capability Descriptor 思想，差异说明见附录 C）
 **涉及模块与分工**:
 
 | 模块 | 改动量 | 负责方 |

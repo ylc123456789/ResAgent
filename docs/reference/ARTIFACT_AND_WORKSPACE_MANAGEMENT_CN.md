@@ -3,7 +3,7 @@
 **来源**: 外部审计 (原文: ARTIFACT_AND_WORKSPACE_MANAGEMENT.md)
 **翻译整理**: ResAgent 开发会话
 **日期**: 2026-08-08
-**状态**: ResAgent Phase 1 待实施；Phase 2/3 为下游模块集成请求
+**状态**: run/task 目录、manifest、artifact 登记和 session bindings 已实施。内容寻址环境、跨 run 资源复用、漂移检测和安全清理纳入 [`../active/RESOURCE_MANAGEMENT_MILESTONE_2.md`](../active/RESOURCE_MANAGEMENT_MILESTONE_2.md)。本文的修复步骤保留为审计记录。
 
 ---
 

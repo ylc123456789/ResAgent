@@ -1,10 +1,16 @@
 # Artifact and Workspace Management
 
+**Status**: The per-run layout, task manifests, artifact registration, and
+session bindings are implemented. Content-addressed environments, cross-run
+resource reuse, drift detection, and safe lifecycle cleanup belong to the
+active resource-management milestone.
+
 ## Purpose
 
-This document records the current artifact, log, cache, and workspace behavior
-across ResAgent, ExpAgent, CodingAgent, and ReproAgent. It defines the target
-contract for a future implementation.
+This document records the standing artifact, log, cache, and workspace
+contract across ResAgent, ExpAgent, CodingAgent, and ReproAgent. Historical
+repair steps remain for audit context; unfinished shared-resource work is
+specified in `../active/RESOURCE_MANAGEMENT_MILESTONE_2.md`.
 
 This is a design and integration document. ResAgent must not modify the source
 of ExpAgent, CodingAgent, or ReproAgent. Changes required in those projects
@@ -431,4 +437,3 @@ Request to ReproAgent:
 - [ ] Write downstream integration request documents.
 - [ ] Add resource-root configuration and documentation.
 - [ ] Add storage inspection before considering cleanup automation.
-
