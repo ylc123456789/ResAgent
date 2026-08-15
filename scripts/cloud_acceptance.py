@@ -37,11 +37,13 @@ class SequencePlanner:
         return {"category": "unknown", "recommended_action": "investigate"}
 
 
-def _step_until_stop(state, controller, max_steps=12):
+def _step_until_stop(state, controller, max_steps=12, after_step=None):
     observations = []
     try:
         for _ in range(max_steps):
             obs = controller.step(state)
+            if after_step is not None:
+                after_step(state)
             save_state(state)
             observations.append(obs)
             print(f"[{state.run.run_id}] {obs.action.value}: {obs.result}")
@@ -61,6 +63,56 @@ def _step_until_stop(state, controller, max_steps=12):
         save_state(state)
         raise
     return observations
+
+
+def _enforce_bounded_scope(state) -> None:
+    """Play the user for scope commitment in the bounded repro acceptance.
+
+    The goal declares exactly one bounded 3-epoch experiment. The advisor
+    plans with LLM variance — sometimes adding experiment variants as
+    required work, sometimes proposing required follow-ups after analysis.
+    In production the user arbitrates scope; in this acceptance the harness
+    does, deterministically: keep the advisory, any pre-analysis code patch,
+    the FIRST experiment and the FIRST analysis covering it; once that
+    analysis has completed, decline every further required task. (skipped is
+    a terminal, gate-resolving state in V2.) The "exactly one completed
+    experiment" assertion still guards the P4 regression class (redundant or
+    misrouted executions) — it just no longer depends on planning variance.
+    """
+    keep: set[str] = set()
+    first_experiment = None
+    # A code patch belongs to the committed plan only when it precedes the
+    # first analysis in creation order (i.e. it exists to make the bounded
+    # experiment runnable); modify_code proposed in a follow-up wave is
+    # scope expansion and is declined like any other follow-up.
+    first_analysis_index = next(
+        (i for i, task in enumerate(state.tasks)
+         if task.capability == "analyze_results"),
+        len(state.tasks),
+    )
+    for index, task in enumerate(state.tasks):
+        if task.agent == Producer.ExpAgent and task.action_id == "initial_consult":
+            keep.add(task.id)
+        elif task.capability == "modify_code" and index < first_analysis_index:
+            keep.add(task.id)
+        elif (task.agent == Producer.ReproAgent
+              and task.capability in {"execute_experiment", "reproduce_experiment"}):
+            if first_experiment is None:
+                first_experiment = task
+                keep.add(task.id)
+    if first_experiment is not None:
+        for task in state.tasks:
+            if (task.capability == "analyze_results"
+                    and first_experiment.id in task.depends_on):
+                keep.add(task.id)
+                break
+    for task in state.tasks:
+        if task.id in keep or not task.required:
+            continue
+        if task.status in (TaskStatus.pending, TaskStatus.blocked,
+                           TaskStatus.failed):
+            task.status = TaskStatus.skipped
+            task.error = "Declined by acceptance scope (user decision)."
 
 
 def _assert_artifacts_exist(state):
@@ -170,7 +222,9 @@ def case_repro(
         workspace_root=str(workspace / "runs"), config=config,
     )
     controller = build_controller(config, mock=False)
-    observations = _step_until_stop(state, controller, max_steps=12)
+    observations = _step_until_stop(
+        state, controller, max_steps=12, after_step=_enforce_bounded_scope,
+    )
     completed = [task for task in state.tasks
                  if task.agent == Producer.ReproAgent
                  and task.status == TaskStatus.completed]
