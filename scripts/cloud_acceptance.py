@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from resagent.orchestrator import build_controller, init_run
 from resagent.integrations.module_paths import resolve_all
 from resagent.controller.planner import PlannedAction
 from resagent.persistence.state import save_state
+from resagent.resources import iter_manifests
 
 
 class SequencePlanner:
@@ -506,10 +508,143 @@ def case_fan_in_analysis(config, workspace: Path) -> dict:
             "input_artifacts": len(analysis.input["input_artifacts"])}
 
 
+def case_m2_env_reuse(config, workspace: Path) -> dict:
+    """M2-P5: content-addressed env lifecycle on real conda.
+
+    Scenarios (§11 matrix):
+    1. first run creates the env (manifest ready, audit recorded);
+    2. a NEW run with the same spec reuses it — zero install;
+    3. a dependency change must create a second env;
+    4. manual drift must be detected — no blind reuse.
+    """
+    import copy as _copy
+
+    repo = workspace / "fixtures" / f"m2-{int(time.time())}"
+    repo.mkdir(parents=True, exist_ok=False)
+    (repo / "README.md").write_text("# M2 fixture\n", encoding="utf-8")
+    (repo / "requirements.txt").write_text("numpy\n", encoding="utf-8")
+    (repo / "train.py").write_text(
+        "import sys, time\n"
+        "start = time.time()\n"
+        "print(f'Test Acc 0.9500 | Python {sys.version_info.major}.{sys.version_info.minor}')\n"
+        "print(f'Runtime {time.time() - start:.2f}s')\n",
+        encoding="utf-8",
+    )
+    for command in (["git", "init"],
+                    ["git", "config", "user.email", "acceptance@example.com"],
+                    ["git", "config", "user.name", "Acceptance Test"],
+                    ["git", "add", "."],
+                    ["git", "commit", "-m", "fixture"]):
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+
+    cfg = _copy.copy(config)
+    cfg.resources = _copy.copy(config.resources)
+    cfg.resources.root = str(workspace / "m2-resources")
+    cfg.resources.reuse_mode = "content_addressed"
+    root = Path(cfg.resources.root)
+
+    def run_once(tag: str, finish: bool = True) -> object:
+        state = init_run(
+            f"M2 content-addressed env reuse ({tag})",
+            workspace_root=str(workspace / "runs"), config=cfg,
+        )
+        state.tasks.clear()  # synthetic scenario (see case_dependency_chain)
+        state.analysis_required = False  # engineering scenario
+        state.tasks.append(AgentTask(
+            id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+            capability="execute_experiment", required=True,
+            project_ref="m2proj",
+            input={
+                # shared local repo: the manifest provenance key
+                "workspace_path": str(repo),
+                "experiment_goal": "Run train.py; report accuracy and runtime.",
+            },
+        ))
+        controller = build_controller(cfg, mock=False)
+        if finish:
+            controller.planner = SequencePlanner([
+                PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
+                PlannedAction(ActionName.finish, {"summary": f"m2 {tag} done"}),
+            ])
+            _step_until_stop(state, controller, max_steps=2)
+        else:
+            # drift scenario: one step; a blocked/error observation is the
+            # expected fail-closed answer, not a case failure
+            controller.planner = SequencePlanner([
+                PlannedAction(ActionName.call_repro_agent, {"task_id": "task_001"}),
+            ])
+            controller.step(state)
+            save_state(state)
+        return state
+
+    manifests = lambda: {
+        m["env_id"]: m
+        for m in iter_manifests(str(root))
+    }
+
+    # 1. first run — create
+    state1 = run_once("create")
+    assert state1.run.status == RunStatus.completed
+    after_first = manifests()
+    assert len(after_first) == 1, f"expected 1 manifest, got {sorted(after_first)}"
+    env_id, manifest = next(iter(after_first.items()))
+    assert manifest["state"] == "ready", manifest
+    assert manifest.get("resolved_fingerprint"), "no resolved fingerprint recorded"
+
+    # 2. second run, same spec — reuse, zero install
+    state2 = run_once("reuse")
+    assert state2.run.status == RunStatus.completed
+    after_second = manifests()
+    assert len(after_second) == 1, (
+        f"reuse created a new env: {sorted(after_second)}"
+    )
+    bindings2 = state2.tasks[0].input.get("env_name", "")
+    assert env_id in bindings2 or manifest["prefix"] in bindings2, (
+        f"second run did not bind the existing env: {bindings2}"
+    )
+
+    # 3. dependency change — must create a second env
+    (repo / "requirements.txt").write_text("numpy\nsix\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "add six"], cwd=repo,
+                   check=True, capture_output=True)
+    state3 = run_once("spec-changed")
+    assert state3.run.status == RunStatus.completed
+    after_third = manifests()
+    assert len(after_third) == 2, (
+        f"spec change must create a new env, got {sorted(after_third)}"
+    )
+
+    # 4. manual drift — blind reuse must be refused
+    prefix = manifest["prefix"]
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet",
+         "--python", str(Path(prefix) / "bin" / "python"), "six"],
+        check=False, capture_output=True, timeout=300,
+    )
+    state4 = run_once("drifted", finish=False)
+    drifted = manifests().get(env_id, {})
+    assert drifted.get("state") == "drifted", (
+        f"drifted env must be marked drifted, got {drifted.get('state')}"
+    )
+    assert state4.tasks[0].status != TaskStatus.completed, (
+        "blind reuse of a drifted env must not complete"
+    )
+
+    return {
+        "env_created": env_id,
+        "envs_total": len(after_third),
+        "drift_detected": True,
+        "runs": [state1.run.run_id, state2.run.run_id,
+                 state3.run.run_id, state4.run.run_id],
+    }
+
+
 CASES = {"coding": case_coding, "repro": case_repro,
          "dependency-chain": case_dependency_chain,
          "fan-in-analysis": case_fan_in_analysis,
-         "env-reuse": case_env_reuse}
+         "env-reuse": case_env_reuse,
+         "m2-env-reuse": case_m2_env_reuse}
 
 
 def _git_metadata(path: Path) -> dict:
