@@ -615,20 +615,24 @@ def case_m2_env_reuse(config, workspace: Path) -> dict:
         f"spec change must create a new env, got {sorted(after_third)}"
     )
 
-    # 4. manual drift — blind reuse must be refused. Install a package into
-    # the env's own python (portable; `pip install --python` needs pip>=22.3)
-    # and fail loudly if the drift injection itself fails.
-    prefix = manifest["prefix"]
+    # 4. manual drift — blind reuse must be refused. The drift target must
+    # be the env a fourth run would actually reuse: the CURRENT spec's env
+    # (stage 3), not the stage-1 one. Uninstalling a spec-required package
+    # changes the resolved inventory offline (no network needed).
+    env_b_id, manifest_b = next(
+        (eid, m) for eid, m in after_third.items() if eid != env_id
+    )
+    prefix_b = manifest_b["prefix"]
     drift = subprocess.run(
-        [str(Path(prefix) / "bin" / "python"), "-m", "pip",
-         "install", "--quiet", "six"],
+        [str(Path(prefix_b) / "bin" / "python"), "-m", "pip",
+         "uninstall", "--quiet", "-y", "six"],
         capture_output=True, text=True, timeout=300,
     )
     assert drift.returncode == 0, (
-        f"drift injection pip install failed: {drift.stderr[-300:]}"
+        f"drift injection pip uninstall failed: {drift.stderr[-300:]}"
     )
     state4 = run_once("drifted", finish=False)
-    drifted = manifests().get(env_id, {})
+    drifted = manifests().get(env_b_id, {})
     assert drifted.get("state") == "drifted", (
         f"drifted env must be marked drifted, got {drifted.get('state')}"
     )
