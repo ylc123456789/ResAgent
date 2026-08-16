@@ -39,49 +39,25 @@ def _schema_registry() -> Registry:
     return registry
 
 
-# ── reference fingerprint implementation ────────────────────────────────────
+# ── reference implementation = the canonical contract file ─────────────────
 
-def canonical_dumps(obj) -> str:
-    """Canonical JSON: sorted keys, ASCII-safe, no insignificant whitespace."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+import importlib.util as _ilu
 
 
-def sha256_hex(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def _load_contract():
+    path = CONTRACTS / "env_contract_v1.py"
+    spec = _ilu.spec_from_file_location("env_contract_v1", path)
+    module = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def identity_subset(spec: dict) -> dict:
-    """The identity-bearing subset of ENVIRONMENT_SPEC_V1 (see schema notes)."""
-    return {
-        "python": spec["python"],
-        "os": spec["os"],
-        "arch": spec["arch"],
-        "accelerator": {
-            "type": spec["accelerator"]["type"],
-            "variant": spec["accelerator"].get("variant", ""),
-        },
-        "dependency_files": [
-            {k: f[k] for k in ("path", "sha256", "revision") if k in f}
-            for f in sorted(spec["dependency_files"], key=lambda f: f["path"])
-        ],
-        "channels": sorted(spec.get("channels", [])),
-        "framework_constraints": sorted(spec.get("framework_constraints", [])),
-    }
-
-
-def spec_fingerprint(spec: dict) -> str:
-    return sha256_hex(canonical_dumps(identity_subset(spec)))
-
-
-def env_id(project: str, fingerprint: str) -> str:
-    slug = re_sub_project(project)
-    return f"resenv_{slug}_{fingerprint[:12]}"
-
-
-def re_sub_project(project: str) -> str:
-    import re
-    slug = re.sub(r"[^a-z0-9]+", "-", project.lower()).strip("-")
-    return re.sub(r"-{2,}", "-", slug) or "project"
+_contract = _load_contract()
+canonical_dumps = _contract.canonical_dumps
+sha256_hex = _contract.sha256_hex
+identity_subset = _contract.identity_subset
+spec_fingerprint = _contract.spec_fingerprint
+env_id = _contract.env_id
 
 
 # ── fixture gate ─────────────────────────────────────────────────────────────
