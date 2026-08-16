@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .resources import iter_manifests
+from .resources import iter_manifests, read_manifest
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -269,25 +269,35 @@ def apply_cleanup(
     """
     root = Path(root)
     results: list[dict] = []
-    now = _now()
-    active = _active_leases(root)
-    current = {m.get("env_id"): m for m in iter_manifests(str(root))}
     for candidate in plan.get("candidates", []):
         env_id = str(candidate.get("env_id", ""))
-        # re-verify the FULL protection set at apply time — a plan is a
-        # snapshot, and state may have changed since it was built
-        manifest = current.get(env_id)
+        # Re-read THIS candidate's manifest and the lease set fresh —
+        # snapshots go stale between the plan and each deletion in this loop.
+        manifest = read_manifest(str(root), env_id)
         if manifest is None:
             results.append({"env_id": env_id, "deleted": False,
                             "reason": "manifest_gone"})
             continue
         reason = _protection_reason(
-            root, manifest, active, now,
+            root, manifest, _active_leases(root), _now(),
             plan.get("min_unused_days", 30.0),
         )
         if reason:
             results.append({"env_id": env_id, "deleted": False,
                             "reason": f"{reason}_at_apply"})
+            continue
+        # Claim before delegating: concurrent readers see "deleting".
+        manifest["state"] = "deleting"
+        manifest["updated_at"] = _now().isoformat()
+        manifest_path = root / "environments" / env_id / "manifest.json"
+        try:
+            tmp = manifest_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
+                           encoding="utf-8")
+            tmp.replace(manifest_path)
+        except OSError as exc:
+            results.append({"env_id": env_id, "deleted": False,
+                            "reason": f"claim_failed:{exc}"})
             continue
         manager = str(manifest.get("manager", ""))
         deleter = (deleters or {}).get(manager)

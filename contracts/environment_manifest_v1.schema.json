@@ -16,8 +16,8 @@
     },
     "state": {
       "type": "string",
-      "enum": ["creating", "ready", "drifted", "failed"],
-      "description": "creating→ready is an atomic transition; never fake-ready after crash"
+      "enum": ["creating", "ready", "drifted", "failed", "deleting"],
+      "description": "creating→ready is an atomic transition; never fake-ready after crash. deleting is claimed by cleanup immediately before physical removal (added 2026-08-16)."
     },
     "certification": {
       "type": "string",

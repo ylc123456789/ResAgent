@@ -568,6 +568,9 @@ def case_m2_env_reuse(config, workspace: Path) -> dict:
                 # shared local repo: the manifest provenance key
                 "workspace_path": str(repo),
                 "experiment_goal": "Run train.py; report accuracy and runtime.",
+                # GPU identity: exercises the content-addressed lifecycle
+                # on the cuda spec path (fixture itself is light)
+                "requires_gpu": True,
             },
         ))
         controller = build_controller(cfg, mock=False)
@@ -723,6 +726,7 @@ def case_m2_cert_upgrade(config, workspace: Path) -> dict:
             "task_goal": "Add a '# verified' comment line at the top of train.py.",
             "verify_commands": ["python train.py"],
             "env_policy": "auto",
+            "requires_gpu": True,  # GPU identity for the upgrade chain
         },
     )
     state1 = run_once("verify", [coding])
@@ -740,6 +744,7 @@ def case_m2_cert_upgrade(config, workspace: Path) -> dict:
         input={
             "workspace_path": str(repo),
             "experiment_goal": "Run train.py; report output.",
+            "requires_gpu": True,  # must match stage 1's spec identity
         },
     )
     state2 = run_once("upgrade", [repro])
