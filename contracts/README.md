@@ -24,8 +24,11 @@ golden fixtures，供 ResAgent、reproagent、CodingAgent 三仓实现对齐。
    （`json.dumps(x, sort_keys=True, separators=(",", ":"), ensure_ascii=True)`）；
 3. 对该字符串取 SHA-256，hex 全小写。
 
-**不参与身份**：时间戳、run/task id、绝对路径、mirror 临时域名、`notes`
-等注释性字段（schema 中未标 `identity` 的字段一律不参与）。
+**不参与身份**：时间戳、run/task id、绝对路径、`notes` 等注释性字段
+——以及 `pip_index_profile`（2026-08-16 修订：镜像是"从哪下载"的操作
+偏好，不是"装了什么"的身份；pypi 镜像与 pypi 内容字节相同，若某 index
+提供了不同构建，差异由 resolved_fingerprint 与复用审计兜底。conda
+`channels` 不同——它们会改变构建产物，保留在身份内）。
 
 `env_id = "resenv_" + slug(project) + "_" + spec_fingerprint[:12]`，其中
 `slug()` 为小写字母数字、`/`与空白转为 `-`、连续 `-` 折叠。
@@ -66,7 +69,8 @@ P0 冻结了"怎么算"；本节冻结"从哪采"。同一 repo + 同一任务�
 ### pip_index_profile
 
 取任务的镜像策略名（如 `autodl`/`aliyun`/`pypi`），由调用方传入；
-禁止硬编码为空或写入临时域名。
+禁止写入临时域名。**仅操作元数据，不进身份**（创建时决定从哪下载；
+复用判定与它无关）。
 
 ### provenance（manifest 必填）
 

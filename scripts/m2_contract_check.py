@@ -65,7 +65,6 @@ def identity_subset(spec: dict) -> dict:
             for f in sorted(spec["dependency_files"], key=lambda f: f["path"])
         ],
         "channels": sorted(spec.get("channels", [])),
-        "pip_index_profile": spec.get("pip_index_profile", ""),
         "framework_constraints": sorted(spec.get("framework_constraints", [])),
     }
 
