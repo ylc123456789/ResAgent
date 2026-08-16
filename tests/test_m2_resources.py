@@ -80,6 +80,40 @@ def test_selection_requires_ready_and_repo_match(tmp_path):
     assert select_environment_manifest(str(tmp_path), "") is None
 
 
+def test_selection_skips_stale_candidate_after_commit_moves(tmp_path):
+    """A repo whose HEAD moved past the manifest's provenance commit gets no
+    injection — the spec may have changed (cloud M2-P5 stage-3 lesson)."""
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("numpy\n", encoding="utf-8")
+    for cmd in (["git", "init"], ["git", "config", "user.email", "t@e.c"],
+                ["git", "config", "user.name", "t"], ["git", "add", "."],
+                ["git", "commit", "-m", "v1"]):
+        subprocess.run(cmd, cwd=repo, check=True, capture_output=True)
+    commit_v1 = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    root = tmp_path / "res"
+    manifest = _manifest("resenv_a_111111111111", str(repo))
+    manifest["provenance"]["repo_commit"] = commit_v1
+    _write_manifest(root, manifest)
+
+    # same commit → candidate proposed
+    found = select_environment_manifest(str(root), str(repo))
+    assert found is not None
+
+    # commit moves → candidate withheld (module recomputes the fingerprint)
+    (repo / "requirements.txt").write_text("numpy\nsix\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "v2"], cwd=repo,
+                   check=True, capture_output=True)
+    assert select_environment_manifest(str(root), str(repo)) is None
+
+
 def test_selection_ranks_certification_then_recency(tmp_path):
     _write_manifest(tmp_path, _manifest("resenv_old_111111111111", "/repo/a",
                                         certification="experiment",

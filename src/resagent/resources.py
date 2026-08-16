@@ -220,6 +220,19 @@ def iter_manifests(resource_root: str):
             yield data
 
 
+def _repo_head_commit(repo_path: str) -> str:
+    """Best-effort current HEAD commit; "" when not determinable."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo_path,
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def select_environment_manifest(
     resource_root: str, repo_path: str, min_certification: str = "",
 ) -> dict | None:
@@ -229,12 +242,18 @@ def select_environment_manifest(
     candidate; the executing module re-verifies by fingerprint and re-audits
     before reuse (the manifest never authorizes reuse by itself). Ranked by
     certification, then most recently used.
+
+    A candidate is only proposed when the repo's current HEAD matches the
+    manifest's provenance commit: a moved commit means the spec MAY have
+    changed, and a stale candidate must never be injected (the module
+    computes the fingerprint fresh in that case).
     """
     if not repo_path:
         return None
     if min_certification and min_certification not in _CERT_RANK:
         return None  # unknown certification vocabulary: fail closed
     want_rank = _CERT_RANK.get(min_certification, 0)
+    head = _repo_head_commit(repo_path)
     candidates = []
     for manifest in iter_manifests(resource_root):
         if manifest.get("state") != "ready":
@@ -242,6 +261,9 @@ def select_environment_manifest(
         provenance = manifest.get("provenance") or {}
         if str(provenance.get("repo_path", "")) != repo_path:
             continue
+        manifest_commit = str(provenance.get("repo_commit", ""))
+        if head and manifest_commit and head != manifest_commit:
+            continue  # repo moved on; do not inject a possibly-stale env
         rank = _CERT_RANK.get(str(manifest.get("certification", "")), 0)
         if rank < want_rank:
             continue
