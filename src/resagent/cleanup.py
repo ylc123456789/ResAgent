@@ -110,6 +110,40 @@ def _contained_prefix(root: Path, manifest: dict) -> str:
     return str(resolved)
 
 
+# ── protection (single evaluator used by BOTH plan and apply) ───────
+
+def _protection_reason(
+    root: Path, manifest: dict, active: set[str], now: datetime,
+    min_unused_days: float,
+) -> str:
+    """Return "" for a deletion candidate, else the protection reason.
+
+    The SAME evaluation must gate planning and applying — a plan is a
+    snapshot, so apply re-runs this exact function per candidate.
+    """
+    env_id = str(manifest.get("env_id", ""))
+    state = str(manifest.get("state", ""))
+
+    if manifest.get("pinned"):
+        return "pinned"
+    if env_id in active:
+        return "active_lease"
+    if state == "creating" and _creation_lock_alive(
+        root, str(manifest.get("spec_fingerprint", ""))
+    ):
+        return "creating_active"
+    if str(manifest.get("prefix", "")) and not _contained_prefix(root, manifest):
+        return "prefix_outside_root"  # containment: never a candidate
+    if state == "creating":
+        return ""  # dead creator → stale_creating candidate
+    if state not in ("ready", "drifted", "failed"):
+        return f"unknown_state:{state}"
+    last_used = _parse_ts(manifest.get("last_used_at"))
+    if last_used is not None and (now - last_used).total_seconds() / 86400.0 < min_unused_days:
+        return "recently_used"
+    return ""
+
+
 # ── inspect / plan ───────────────────────────────────────────────────
 
 def inspect_resources(root: str | Path) -> list[dict]:
@@ -147,40 +181,20 @@ def plan_cleanup(
     for manifest in iter_manifests(str(root)):
         env_id = str(manifest.get("env_id", ""))
         state = str(manifest.get("state", ""))
-        reason = ""
-
-        if manifest.get("pinned"):
-            reason = "pinned"
-        elif env_id in active:
-            reason = "active_lease"
-        elif state == "creating" and _creation_lock_alive(
-            root, str(manifest.get("spec_fingerprint", ""))
-        ):
-            reason = "creating_active"
+        reason = _protection_reason(root, manifest, active, now, min_unused_days)
+        if reason:
+            protected.append({"env_id": env_id, "reason": reason})
+            continue
 
         prefix = _contained_prefix(root, manifest)
-        if not reason and str(manifest.get("prefix", "")) and not prefix:
-            reason = "prefix_outside_root"  # containment: never a candidate
-
         unused_days: float | None = None
         last_used = _parse_ts(manifest.get("last_used_at"))
         if last_used is not None:
             unused_days = (now - last_used).total_seconds() / 86400.0
-
-        if not reason:
-            if state == "creating":
-                candidate_reason = "stale_creating"
-            elif state in ("ready", "drifted", "failed"):
-                if unused_days is not None and unused_days < min_unused_days:
-                    reason = "recently_used"
-                else:
-                    candidate_reason = state if state != "ready" else "expired"
-            else:
-                reason = f"unknown_state:{state}"
-
-        if reason:
-            protected.append({"env_id": env_id, "reason": reason})
-            continue
+        if state == "creating":
+            candidate_reason = "stale_creating"
+        else:
+            candidate_reason = state if state != "ready" else "expired"
         candidates.append({
             "env_id": env_id,
             "manager": str(manifest.get("manager", "")),
@@ -255,22 +269,25 @@ def apply_cleanup(
     """
     root = Path(root)
     results: list[dict] = []
+    now = _now()
+    active = _active_leases(root)
+    current = {m.get("env_id"): m for m in iter_manifests(str(root))}
     for candidate in plan.get("candidates", []):
         env_id = str(candidate.get("env_id", ""))
-        # re-verify protection at apply time
-        current = {m.get("env_id"): m for m in iter_manifests(str(root))}
+        # re-verify the FULL protection set at apply time — a plan is a
+        # snapshot, and state may have changed since it was built
         manifest = current.get(env_id)
         if manifest is None:
             results.append({"env_id": env_id, "deleted": False,
                             "reason": "manifest_gone"})
             continue
-        if manifest.get("pinned"):
+        reason = _protection_reason(
+            root, manifest, active, now,
+            plan.get("min_unused_days", 30.0),
+        )
+        if reason:
             results.append({"env_id": env_id, "deleted": False,
-                            "reason": "pinned_at_apply"})
-            continue
-        if env_id in _active_leases(root):
-            results.append({"env_id": env_id, "deleted": False,
-                            "reason": "leased_at_apply"})
+                            "reason": f"{reason}_at_apply"})
             continue
         manager = str(manifest.get("manager", ""))
         deleter = (deleters or {}).get(manager)

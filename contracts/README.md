@@ -42,6 +42,51 @@ golden fixtures，供 ResAgent、reproagent、CodingAgent 三仓实现对齐。
 
 新增等价/区分案例时**三仓同步更新 fixtures**，不允许单侧扩展。
 
+## 采集语义（规范性，三仓必须一致）
+
+P0 冻结了"怎么算"；本节冻结"从哪采"。同一 repo + 同一任务，三仓必须
+采到逐字节相同的 spec，否则跨模块复用/升级无从谈起。
+
+### accelerator
+
+- `type`：任务的 `requires_gpu` 为真且本机有可用 GPU → `cuda`；
+  否则 `cpu`。**驱动探测只用于可行性判断，不进入身份。**
+- `variant`：任务/框架约束显式给出（如 `torch==2.6.*+cu124`）时取该值；
+  否则留空 `""`，由创建时解析并记录到 manifest.resolved.frameworks。
+  **禁止**把驱动支持的最高 CUDA 版本映射为 wheel 变体（driver 13.0 ≠
+  cu130），**禁止**读取调用方宿主进程里已装的框架来推断。
+
+### dependency_files
+
+- 文件集合（repo 相对路径）：`environment.yml`、`requirements*.txt`、
+  `pyproject.toml`、`setup.py`、`setup.cfg`、lock 文件（`*.lock`、
+  `requirements*.lock`）；按相对路径排序；
+- `sha256` = **文件原始字节**的 SHA-256（不得先 decode/转码）。
+
+### pip_index_profile
+
+取任务的镜像策略名（如 `autodl`/`aliyun`/`pypi`），由调用方传入；
+禁止硬编码为空或写入临时域名。
+
+### provenance（manifest 必填）
+
+- `repo_path`：任务工作区对应的 repo 绝对路径（创建 env 时必填）；
+- `repo_commit`：git HEAD（是 git 仓库时必填，用于陈旧候选剔除）；
+- `repo_origin`：repo_url 或 `local`。
+
+### resolved_fingerprint 规范化
+
+`sha256(canonical_dumps({python, conda_inventory_sha256,
+pip_inventory_sha256, frameworks, abi_summary}))`，其中两个 inventory 哈希
+分别为 `conda list -p <prefix> --json` 与 `python -m pip list
+--format=json`（在目标 env 内执行）输出的 canonical JSON 的 SHA-256；
+必须在**依赖安装完成后**计算。
+
+### lease 布局（定死）
+
+lease 只写一个位置：`<root>/environments/<env_id>/usage/lease_*.json`。
+所有读取方（含各模块 prune/清理）必须读这里，不得另立 `<root>/leases/`。
+
 ## 版本与兼容策略
 
 - 契约以文件名内版本号演进（`_V1` → `_V2`）；V1 生命周期内只做

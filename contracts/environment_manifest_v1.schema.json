@@ -50,6 +50,17 @@
     "updated_at": {"type": "string", "format": "date-time"},
     "last_used_at": {"type": ["string", "null"], "format": "date-time", "default": null},
     "pinned": {"type": "boolean", "default": false},
+    "drift": {
+      "type": ["object", "null"],
+      "description": "Present only after a drift event (state=drifted): the expected vs actual resolved fingerprints and details.",
+      "additionalProperties": false,
+      "properties": {
+        "expected": {"type": "string"},
+        "actual": {"type": "string"},
+        "details": {"type": "string", "default": ""}
+      },
+      "default": null
+    },
     "provenance": {
       "type": "object",
       "additionalProperties": false,

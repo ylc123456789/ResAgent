@@ -139,6 +139,29 @@ def test_apply_routes_to_manager_and_rechecks(tmp_path):
     assert skipped["resenv_c_333333333333"] == "pinned_at_apply"
 
 
+def test_apply_rechecks_full_protection_set(tmp_path):
+    """A plan is a snapshot: recency changes must be re-verified at apply."""
+    from datetime import datetime, timezone
+
+    root = tmp_path / "res"
+    old = "2020-01-01T00:00:00Z"
+    _write_env(root, _manifest("resenv_d_444444444444", last_used_at=old))
+    plan = plan_cleanup(root, min_unused_days=30)
+    assert [c["env_id"] for c in plan["candidates"]] == ["resenv_d_444444444444"]
+
+    # the env gets used between plan and apply
+    manifest_file = root / "environments" / "resenv_d_444444444444" / "manifest.json"
+    data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    data["last_used_at"] = datetime.now(timezone.utc).isoformat()
+    manifest_file.write_text(json.dumps(data), encoding="utf-8")
+
+    result = apply_cleanup(root, plan, deleters={"reproagent": lambda r, e: {
+        "env_id": e, "deleted": True, "reason": "",
+    }})
+    assert result["deleted"] == []
+    assert result["skipped"][0]["reason"] == "recently_used_at_apply"
+
+
 def test_inspect_resources_summary(tmp_path):
     root = tmp_path / "res"
     _write_env(root, _manifest("resenv_a_111111111111",
