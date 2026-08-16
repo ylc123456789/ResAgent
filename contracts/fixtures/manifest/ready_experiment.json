@@ -1,0 +1,55 @@
+{
+  "schema": "ENVIRONMENT_MANIFEST_V1",
+  "env_id": "resenv_torchdiffeq_66630c82f611",
+  "state": "ready",
+  "certification": "experiment",
+  "spec_fingerprint": "66630c82f6113079d7d193a02700f9b926417dedc0d35a44cfd35f53e1694d00",
+  "resolved_fingerprint": "64c0ed281694dbb0ea16f95dc9bb24ecfcd368c72fc18bd3c4253c20756ae5e7",
+  "prefix": "/root/autodl-tmp/resagent-resources/conda-envs/resenv_torchdiffeq_66630c82f611",
+  "manager": "reproagent",
+  "created_by": {"module": "reproagent", "run_id": "res-20260816-demo", "task_id": "task_003"},
+  "created_at": "2026-08-16T02:00:00Z",
+  "updated_at": "2026-08-16T02:05:00Z",
+  "last_used_at": "2026-08-16T02:05:00Z",
+  "pinned": false,
+  "provenance": {
+    "repo_path": "/root/autodl-tmp/resagent-workspace/demo/fixtures/torchdiffeq",
+    "repo_origin": "local",
+    "repo_commit": "abc123def456"
+  },
+  "spec": {
+    "schema": "ENVIRONMENT_SPEC_V1",
+    "python": "3.11",
+    "os": "linux",
+    "arch": "x86_64",
+    "accelerator": {"type": "cuda", "variant": "cu124"},
+    "dependency_files": [
+      {
+        "path": "requirements.txt",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "channels": [],
+    "pip_index_profile": "aliyun",
+    "framework_constraints": ["torch==2.6.*"],
+    "notes": "ODE-Net MNIST bounded run"
+  },
+  "resolved": {
+    "python": "3.11.9",
+    "conda_inventory_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pip_inventory_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "frameworks": {"torch": {"version": "2.6.0", "cuda": "12.4"}},
+    "abi_summary": "glibc2.35"
+  },
+  "audits": [
+    {
+      "artifact": "audits/audit_experiment_20260816T020500Z.json",
+      "level": "experiment",
+      "outcome": "pass",
+      "at": "2026-08-16T02:05:00Z"
+    }
+  ],
+  "usage": [
+    {"run_id": "res-20260816-demo", "task_id": "task_003", "at": "2026-08-16T02:05:00Z"}
+  ]
+}

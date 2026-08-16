@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "RESOURCE_LEASE_V1",
+  "title": "Resource Lease V1 — active-use registration for an environment",
+  "type": "object",
+  "required": [
+    "schema", "lease_id", "env_id", "run_id", "task_id",
+    "host", "pid", "acquired_at", "heartbeat_at", "released_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "RESOURCE_LEASE_V1"},
+    "lease_id": {"type": "string", "minLength": 1},
+    "env_id": {"type": "string", "pattern": "^resenv_[a-z0-9-]+_[0-9a-f]{12}$"},
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "host": {"type": "string", "minLength": 1},
+    "pid": {"type": "integer", "minimum": 1},
+    "acquired_at": {"type": "string", "format": "date-time"},
+    "heartbeat_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Refreshed while the holder is alive; recovery must verify process liveness, never delete on age alone"
+    },
+    "released_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "null while held"
+    }
+  }
+}

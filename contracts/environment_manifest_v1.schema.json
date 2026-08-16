@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ENVIRONMENT_MANIFEST_V1",
+  "title": "Environment Manifest V1 — authoritative index card of a physical env",
+  "type": "object",
+  "required": [
+    "schema", "env_id", "state", "certification", "spec_fingerprint",
+    "prefix", "manager", "created_by", "created_at", "updated_at", "pinned"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "ENVIRONMENT_MANIFEST_V1"},
+    "env_id": {
+      "type": "string",
+      "pattern": "^resenv_[a-z0-9-]+_[0-9a-f]{12}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["creating", "ready", "drifted", "failed"],
+      "description": "creating→ready is an atomic transition; never fake-ready after crash"
+    },
+    "certification": {
+      "type": "string",
+      "enum": ["none", "verification", "experiment"],
+      "description": "experiment is granted only by reproagent after a passing audit"
+    },
+    "spec_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resolved_fingerprint": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Hash of the actual installed inventory; null while creating"
+    },
+    "prefix": {"type": "string", "description": "Absolute env prefix"},
+    "manager": {
+      "type": "string",
+      "enum": ["reproagent", "codingagent"],
+      "description": "Module that created and physically manages this env (deletion owner)"
+    },
+    "created_by": {
+      "type": "object",
+      "required": ["module"],
+      "additionalProperties": false,
+      "properties": {
+        "module": {"type": "string"},
+        "run_id": {"type": "string", "default": ""},
+        "task_id": {"type": "string", "default": ""}
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "last_used_at": {"type": ["string", "null"], "format": "date-time", "default": null},
+    "pinned": {"type": "boolean", "default": false},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where this env came from. repo_commit lives here, NOT in identity.",
+      "properties": {
+        "repo_path": {"type": "string", "default": ""},
+        "repo_origin": {"type": "string", "default": ""},
+        "repo_commit": {"type": "string", "default": ""}
+      },
+      "default": {}
+    },
+    "spec": {"$ref": "environment_spec_v1.schema.json"},
+    "resolved": {
+      "type": ["object", "null"],
+      "description": "Normalized installed inventory summary; null while creating",
+      "additionalProperties": false,
+      "properties": {
+        "python": {"type": "string"},
+        "conda_inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "pip_inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "frameworks": {
+          "type": "object",
+          "description": "e.g. {\"torch\": {\"version\": \"2.6.0\", \"cuda\": \"12.4\"}}",
+          "additionalProperties": true
+        },
+        "abi_summary": {"type": "string", "default": ""}
+      }
+    },
+    "audits": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["artifact", "level", "outcome", "at"],
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {"type": "string", "description": "Path to ENVIRONMENT_AUDIT_V1 JSON, relative to the manifest directory"},
+          "level": {"type": "string", "enum": ["verification", "experiment"]},
+          "outcome": {"type": "string", "enum": ["pass", "fail"]},
+          "at": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    "usage": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["at"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {"type": "string", "default": ""},
+          "task_id": {"type": "string", "default": ""},
+          "at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

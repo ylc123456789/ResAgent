@@ -1,0 +1,37 @@
+{
+  "schema": "ENVIRONMENT_AUDIT_V1",
+  "audit_id": "audit_experiment_20260816T020500Z",
+  "env_id": "resenv_torchdiffeq_66630c82f611",
+  "level": "experiment",
+  "outcome": "pass",
+  "resolved_fingerprint": "64c0ed281694dbb0ea16f95dc9bb24ecfcd368c72fc18bd3c4253c20756ae5e7",
+  "audited_by": {"module": "reproagent", "run_id": "res-20260816-demo", "task_id": "task_003"},
+  "at": "2026-08-16T02:05:00Z",
+  "checks": [
+    {
+      "name": "hardware",
+      "outcome": "pass",
+      "detail": "RTX 4090 D, driver 560.x",
+      "evidence_path": "logs/audit_hardware.log"
+    },
+    {
+      "name": "accelerator",
+      "outcome": "pass",
+      "detail": "CUDA 12.4 available to torch",
+      "evidence_path": "logs/audit_cuda.log"
+    },
+    {
+      "name": "framework_import",
+      "outcome": "pass",
+      "detail": "import torch OK (2.6.0+cu124)",
+      "evidence_path": "logs/audit_import.log"
+    },
+    {
+      "name": "repo_probe",
+      "outcome": "pass",
+      "detail": "examples/odenet_mnist.py --help exits 0",
+      "evidence_path": "logs/audit_probe.log"
+    }
+  ],
+  "notes": ""
+}

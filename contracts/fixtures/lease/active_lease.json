@@ -1,0 +1,12 @@
+{
+  "schema": "RESOURCE_LEASE_V1",
+  "lease_id": "lease_res-20260816-demo_task_003",
+  "env_id": "resenv_torchdiffeq_66630c82f611",
+  "run_id": "res-20260816-demo",
+  "task_id": "task_003",
+  "host": "autodl-container-7f3a",
+  "pid": 23456,
+  "acquired_at": "2026-08-16T02:05:10Z",
+  "heartbeat_at": "2026-08-16T02:05:40Z",
+  "released_at": null
+}

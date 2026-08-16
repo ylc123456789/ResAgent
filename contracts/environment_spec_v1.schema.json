@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ENVIRONMENT_SPEC_V1",
+  "title": "Environment Spec V1 — requested environment specification",
+  "type": "object",
+  "required": ["schema", "python", "os", "arch", "accelerator", "dependency_files"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "ENVIRONMENT_SPEC_V1"},
+    "python": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Python major.minor, e.g. \"3.11\". identity: true"
+    },
+    "os": {
+      "type": "string",
+      "enum": ["linux", "macos", "windows"],
+      "description": "Normalized OS family. identity: true"
+    },
+    "arch": {
+      "type": "string",
+      "enum": ["x86_64", "aarch64"],
+      "description": "Normalized CPU architecture. identity: true"
+    },
+    "accelerator": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["cpu", "cuda", "rocm", "mps"],
+          "description": "identity: true"
+        },
+        "variant": {
+          "type": "string",
+          "description": "Binary variant, e.g. \"cu121\", \"cu124\". Empty for cpu. identity: true"
+        }
+      }
+    },
+    "dependency_files": {
+      "type": "array",
+      "description": "Dependency declarations, sorted by repo-relative path. identity: true",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repo-relative POSIX path, e.g. \"requirements.txt\" or \"envs/gpu.yml\""
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Content hash of the file bytes (UTF-8, as-is)"
+          },
+          "revision": {
+            "type": "string",
+            "description": "Git revision when the dependency source is revision-pinned; joins identity only then"
+          }
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Conda channels affecting binary variants, sorted. identity: true",
+      "default": []
+    },
+    "pip_index_profile": {
+      "type": "string",
+      "description": "Normalized mirror profile name (e.g. \"aliyun\", \"pypi\"); transient hostnames forbidden. identity: true",
+      "default": ""
+    },
+    "framework_constraints": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Explicit framework/CUDA constraints from user or upstream task, sorted, e.g. \"torch==2.6.*\". identity: true",
+      "default": []
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form human note. NOT part of identity.",
+      "default": ""
+    }
+  }
+}
