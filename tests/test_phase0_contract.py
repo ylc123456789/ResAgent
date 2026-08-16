@@ -30,7 +30,7 @@ def test_cli_help_contract(monkeypatch) -> None:
             cli.main()
         except SystemExit as exc:
             assert exc.code == 0
-    assert _sha256(output.getvalue()) == "f9b41d3e2aca75c747401d1b51ef6caa57dc04c7a50cbf2a91f63f6b1289746e"
+    assert _sha256(output.getvalue()) == "b2e1c55a213995292f55f488a7f75b9dc04ec045be9fee93a9f409973dda9423"
 
 
 def test_prompt_contracts() -> None:

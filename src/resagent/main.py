@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -87,6 +88,21 @@ def main():
     p_chat.add_argument("--mock", action="store_true",
                         help="Mock LLM + all experts (no API calls)")
     _add_path_args(p_chat)
+
+    # -- resources --
+    p_res = sub.add_parser("resources",
+                           help="Inspect or clean up managed environments (M2)")
+    p_res.add_argument("action", choices=["inspect", "cleanup"],
+                       help="inspect: list environments; cleanup: plan (dry-run) or apply")
+    p_res.add_argument("--apply", action="store_true",
+                       help="Execute the cleanup plan (default is dry-run)")
+    p_res.add_argument("--root", default="",
+                       help="Resource root (default: config resources.root > RESAGENT_RESOURCE_ROOT)")
+    p_res.add_argument("--min-unused-days", type=float, default=None,
+                       help="LRU threshold in days (default: config cleanup.min_unused_days)")
+    p_res.add_argument("--max-bytes", type=int, default=None,
+                       help="Stop after reclaiming this many bytes (default: all expired)")
+    _add_path_args(p_res)
 
     args = parser.parse_args()
 
@@ -198,6 +214,57 @@ def _dispatch(args):
             conv = new_conversation(ws, cfg.chat.conversations_dirname)
 
         run_repl(conv, chat, tools, ws)
+
+    elif args.command == "resources":
+        _dispatch_resources(args, cfg)
+
+
+def _dispatch_resources(args, cfg) -> None:
+    """resagent resources inspect|cleanup — M2 environment maintenance."""
+    from .cleanup import apply_cleanup, inspect_resources, plan_cleanup
+
+    root = args.root or cfg.resources.root
+    if not root:
+        print("No resource root. Set --root, config resources.root, or "
+              "RESAGENT_RESOURCE_ROOT.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.action == "inspect":
+        entries = inspect_resources(root)
+        if not entries:
+            print(f"No managed environments under {root}")
+            return
+        for entry in entries:
+            flags = []
+            if entry["pinned"]:
+                flags.append("pinned")
+            if entry["active_lease"]:
+                flags.append("leased")
+            suffix = f"  [{','.join(flags)}]" if flags else ""
+            print(
+                f"{entry['env_id']}  state={entry['state'] or '-'} "
+                f"cert={entry['certification'] or '-'} "
+                f"manager={entry['manager'] or '-'} "
+                f"last_used={entry['last_used_at'] or '-'} "
+                f"bytes={entry['bytes']}{suffix}"
+            )
+        return
+
+    min_days = (args.min_unused_days if args.min_unused_days is not None
+                else cfg.resources.cleanup_min_unused_days)
+    max_bytes = (args.max_bytes if args.max_bytes is not None
+                 else cfg.resources.cleanup_max_bytes)
+    plan = plan_cleanup(root, min_unused_days=min_days, max_bytes=max_bytes)
+    print(json.dumps(plan, indent=2, ensure_ascii=False))
+    if not args.apply:
+        print("\nDry-run only. Re-run with --apply to execute.", file=sys.stderr)
+        return
+    result = apply_cleanup(
+        root, plan,
+        reproagent_path=cfg.agents.reproagent,
+        codingagent_path=cfg.agents.codingagent,
+    )
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def _read_goal(goal_spec: str) -> str:
