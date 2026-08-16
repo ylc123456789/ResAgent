@@ -191,7 +191,12 @@ def case_coding(config, workspace: Path) -> dict:
         workspace_root=str(workspace / "runs"), config=config,
     )
     controller = build_controller(config, mock=False)
-    observations = _step_until_stop(state, controller, max_steps=10)
+    # Same scope arbitration as case_repro: the advisor may keep proposing
+    # execute→analyze waves; the harness (as the user) commits to the first
+    # experiment + its analysis and declines the rest — the case's outcome
+    # must not depend on LLM planning variance.
+    observations = _step_until_stop(state, controller, max_steps=10,
+                                    after_step=_enforce_bounded_scope)
     completed = [task for task in state.tasks
                  if task.agent == Producer.CodingAgent
                  and task.status == TaskStatus.completed]
