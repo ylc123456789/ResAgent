@@ -615,12 +615,17 @@ def case_m2_env_reuse(config, workspace: Path) -> dict:
         f"spec change must create a new env, got {sorted(after_third)}"
     )
 
-    # 4. manual drift — blind reuse must be refused
+    # 4. manual drift — blind reuse must be refused. Install a package into
+    # the env's own python (portable; `pip install --python` needs pip>=22.3)
+    # and fail loudly if the drift injection itself fails.
     prefix = manifest["prefix"]
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
-         "--python", str(Path(prefix) / "bin" / "python"), "six"],
-        check=False, capture_output=True, timeout=300,
+    drift = subprocess.run(
+        [str(Path(prefix) / "bin" / "python"), "-m", "pip",
+         "install", "--quiet", "six"],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert drift.returncode == 0, (
+        f"drift injection pip install failed: {drift.stderr[-300:]}"
     )
     state4 = run_once("drifted", finish=False)
     drifted = manifests().get(env_id, {})
