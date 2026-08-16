@@ -11,6 +11,8 @@
 | 文档 | 内容 |
 |---|---|
 | RESOURCE_MANAGEMENT_MILESTONE_2.md | 里程碑二：内容寻址环境、manifest、并发锁、复用前审计、漂移检测、跨 run 复用与安全清理 |
+| handoffs/M2_P1_REPROAGENT.md | 交办单：reproagent 环境管理器（P1） |
+| handoffs/M2_P2_CODINGAGENT.md | 交办单：CodingAgent 环境政策对齐（P2） |
 
 ## reference/ — 常驻（现行契约与架构）
 
