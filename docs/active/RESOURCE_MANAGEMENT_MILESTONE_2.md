@@ -128,6 +128,12 @@
 env_id = resenv_<project-slug>_<spec_fingerprint[:12]>
 ```
 
+`project-slug` 来源（2026-08-16 补充）：编排模式取 ResAgent 传入的
+`project_ref`；独立模式取 repo 目录的 **basename**（不含路径——同一 repo
+在不同路径下 slug 必须相同）；两者均按 `contracts/README.md` 的规范化
+规则处理，为空时回退 `"project"`。slug 仅供人读，环境身份完全由指纹
+承载，不同项目 slug 撞名无害。
+
 新增配置：
 
 ```yaml
@@ -262,6 +268,14 @@ CodingAgent `auto` 创建的 env 可被登记为 `verification`。当 reproagent
 - `reuse_only`：不就地升级重型框架，需要时返回新建请求；
 - `auto`：默认创建新 fingerprint 的 env，不在已被其他 run 引用的 env 上盲修；
 - 原 env 保留为 `drifted`，由清理策略后续处理。
+
+**操作员（reproagent）自身复用路径的裁定**（2026-08-16 补充）：检测到
+漂移时一律**拒绝复用并将 manifest 置为 `drifted`**，返回结构化
+blocker（env_id、manifest 路径、期望/实际 resolved_fingerprint、漂移
+细节）。操作员不得自动新建同指纹环境（env_id 由指纹派生，重建必然撞
+名；且新建是资源消耗决策），也不得就地修复（是否被其他 run 引用是全
+局状态，本地不可判）。漂移后的删除重建/换前缀新建/升级用户由
+M2-P3（ResAgent 跨 run 资源选择）决策。legacy 模式行为不变。
 
 ## 7. 跨 run 登记与清理
 
