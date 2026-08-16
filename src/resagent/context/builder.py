@@ -45,6 +45,11 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
         parts.append("\n## Registered Resources\n" + "\n".join(
             f"- {resource.kind}:{resource.id} path={resource.path or '-'} "
             f"repo={resource.repo or '-'} certification={resource.certification or '-'}"
+            + (
+                f" state={resource.state or '-'} manager={resource.manager or '-'} "
+                f"last_used={resource.last_used_at or '-'}"
+                if resource.manifest_path else ""
+            )
             for resource in state.resources
         ))
 
@@ -161,6 +166,7 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "mirror_profile": task.input.get("mirror_profile", ""),
         "codingagent_path": task.input.get("codingagent_path", ""),
         "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
+        "project_ref": task.project_ref,
     }
 
 

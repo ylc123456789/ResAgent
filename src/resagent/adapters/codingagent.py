@@ -22,6 +22,7 @@ class CodingAgentAdapter:
         api_base: str = "https://api.deepseek.com",
         api_key_env: str = "DEEPSEEK_API_KEY",
         max_steps: int = 48,
+        resource_root: str = "",
         mock: bool = False,
     ):
         self.module_path = module_path
@@ -29,6 +30,7 @@ class CodingAgentAdapter:
         self.api_base = api_base
         self.api_key_env = api_key_env
         self.max_steps = max_steps
+        self.resource_root = resource_root
         self.mock = mock
         self._imported = False
 
@@ -210,6 +212,8 @@ class CodingAgentAdapter:
             api_key_env=self.api_key_env,
             parent_run=parent_run,
             output_dir=out_dir,
+            # M2: content-addressed env management (no-op when empty).
+            resource_root=self.resource_root,
         )
 
         result = run_code_task(task_spec)

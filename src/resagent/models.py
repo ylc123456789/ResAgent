@@ -112,7 +112,11 @@ class Artifact(BaseModel):
 
 
 class ResourceRef(BaseModel):
-    """A physical resource registered by an executor within this run."""
+    """A physical resource registered by an executor within this run.
+
+    The M2 content-addressed fields are optional: states written before
+    milestone two (and legacy-mode runs) simply leave them empty.
+    """
 
     kind: str
     id: str
@@ -122,6 +126,14 @@ class ResourceRef(BaseModel):
     certification: str = ""
     created_by: Producer
     created_task: str
+    # M2 (ENVIRONMENT_MANIFEST_V1) — recovered from session card bindings
+    manifest_path: str = ""
+    prefix: str = ""
+    spec_fingerprint: str = ""
+    resolved_fingerprint: str = ""
+    manager: str = ""       # module that owns physical deletion
+    state: str = ""         # manifest state: creating/ready/drifted/failed
+    last_used_at: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -146,6 +146,7 @@ def build_controller(
     return Controller(
         planner=planner,
         shared_workspace=config.policy.shared_workspace,
+        resources=config.resources,
         expagent=ExpAgentAdapter(
             module_path=expagent_path,
             model=config.llm.model,
@@ -160,6 +161,7 @@ def build_controller(
             api_base=config.llm.api_base,
             api_key_env=config.llm.api_key_env,
             max_steps=48,
+            resource_root=config.resources.root,
             mock=mock,
         ),
         reproagent=ReproAgentAdapter(
@@ -169,6 +171,8 @@ def build_controller(
             api_key_env=config.llm.api_key_env,
             mirror_profile=config.policy.repro_mirror_profile,
             dataset_cache_dir=config.policy.repro_dataset_cache,
+            resource_root=config.resources.root,
+            reuse_mode=config.resources.reuse_mode,
             mock=mock,
         ),
     )

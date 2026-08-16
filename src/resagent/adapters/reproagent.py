@@ -38,6 +38,8 @@ class ReproAgentAdapter:
         api_key_env: str = "DEEPSEEK_API_KEY",
         mirror_profile: str = "none",
         dataset_cache_dir: str = "",
+        resource_root: str = "",
+        reuse_mode: str = "legacy",
         mock: bool = False,
     ):
         self.module_path = module_path
@@ -46,6 +48,8 @@ class ReproAgentAdapter:
         self.api_key_env = api_key_env
         self.mirror_profile = mirror_profile
         self.dataset_cache_dir = dataset_cache_dir
+        self.resource_root = resource_root
+        self.reuse_mode = reuse_mode
         self.mock = mock
         self._imported = False
 
@@ -166,6 +170,11 @@ class ReproAgentAdapter:
             # and the parent pointer on the session card.
             env_namespace=parent_run.get("run_id", "") if parent_run else "",
             parent_run=parent_run,
+            # M2: content-addressed environment management (module-side
+            # no-ops when root is empty / mode is legacy).
+            resource_root=self.resource_root,
+            reuse_mode=self.reuse_mode,
+            project_ref=spec.get("project_ref", ""),
         )
 
         start = time.time()

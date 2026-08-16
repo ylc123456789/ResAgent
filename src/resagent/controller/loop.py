@@ -27,6 +27,7 @@ class Controller(ControllerActions):
         reproagent: ReproAgentAdapter,
         confirm_callback: callable = None,
         shared_workspace: str = "auto",
+        resources=None,
     ):
         self.planner = planner
         self.expagent = expagent
@@ -34,6 +35,8 @@ class Controller(ControllerActions):
         self.reproagent = reproagent
         self.confirm = confirm_callback or (lambda _: True)
         self.shared_workspace = shared_workspace
+        # M2 ResourcesConfig; None means legacy resource behavior.
+        self.resources = resources
 
     def step(self, state: ResearchState) -> Observation:
         """Execute one action, respecting persisted pause and retry state."""

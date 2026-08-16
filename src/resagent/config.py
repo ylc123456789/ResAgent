@@ -42,6 +42,21 @@ class PolicyConfig:
 
 
 @dataclass
+class ResourcesConfig:
+    """M2 resource management (contracts/ENVIRONMENT_*_V1).
+
+    Default is fully legacy: no resource root, name-based reuse, no cleanup.
+    Content-addressed mode engages only when root is set AND
+    reuse_mode == "content_addressed".
+    """
+    root: str = ""                       # resource root (manifests/locks/envs)
+    reuse_mode: str = "legacy"           # "legacy" | "content_addressed"
+    cleanup_enabled: bool = False
+    cleanup_max_bytes: int = 0
+    cleanup_min_unused_days: int = 30
+
+
+@dataclass
 class ChatConfig:
     """Conversation-layer settings (docs/reference/CONVERSATION_LAYER_DESIGN.md §4.9)."""
     max_tool_calls_per_turn: int = 4
@@ -58,6 +73,7 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
+    resources: ResourcesConfig = field(default_factory=ResourcesConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
 
     # Optional CLI-override inputs to module_paths resolution (NOT populated by resolution).
@@ -78,6 +94,8 @@ def load_config(path: str = "") -> Config:
     # Env var overrides
     if os.environ.get("RESAGENT_WORKSPACE"):
         cfg.workspace.default_runs_dir = os.environ["RESAGENT_WORKSPACE"]
+    if os.environ.get("RESAGENT_RESOURCE_ROOT"):
+        cfg.resources.root = os.environ["RESAGENT_RESOURCE_ROOT"]
     if os.environ.get("EXPAGENT_PATH"):
         cfg.agents.expagent = os.environ["EXPAGENT_PATH"]
     if os.environ.get("CODINGAGENT_PATH"):
@@ -156,3 +174,15 @@ def _apply_yaml(cfg: Config, path: str) -> None:
                     "max_steps_per_turn", "consult_max_steps", "conversations_dirname"):
             if key in chat:
                 setattr(cfg.chat, key, chat[key])
+
+    res = data.get("resources", {})
+    if isinstance(res, dict):
+        cfg.resources.root = res.get("root", cfg.resources.root)
+        cfg.resources.reuse_mode = res.get("reuse_mode", cfg.resources.reuse_mode)
+        cleanup = res.get("cleanup", {})
+        if isinstance(cleanup, dict):
+            cfg.resources.cleanup_enabled = cleanup.get("enabled", cfg.resources.cleanup_enabled)
+            cfg.resources.cleanup_max_bytes = cleanup.get("max_bytes", cfg.resources.cleanup_max_bytes)
+            cfg.resources.cleanup_min_unused_days = cleanup.get(
+                "min_unused_days", cfg.resources.cleanup_min_unused_days
+            )

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
+import socket
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import AgentKind, AgentTask, Producer, ResearchState, ResourceRef, TaskStatus
@@ -25,6 +29,7 @@ def materialize_task_bindings(
     task: AgentTask,
     layout: WorkspaceLayout,
     shared_workspace: str = "auto",
+    resources=None,
 ) -> None:
     """Resolve logical project/dependency references immediately before dispatch."""
     if shared_workspace not in {"auto", "always", "never"}:
@@ -39,12 +44,33 @@ def materialize_task_bindings(
         shared_workspace == "auto" and intent != "isolated"
     )
 
+    # M2: in content_addressed mode, propose a ready manifest env for the
+    # task's repo (cross-run). The executing module re-verifies by
+    # fingerprint before reuse — this injection is only a candidate.
+    # Legacy mode is completely unaffected.
+    manifest_env = None
+    if (
+        resources is not None
+        and getattr(resources, "reuse_mode", "legacy") == "content_addressed"
+        and getattr(resources, "root", "")
+        and not task.input.get("env_name")
+    ):
+        repo_path = (repo.path if repo else "") or (
+            dependency_repo.path if dependency_repo else ""
+        ) or str(task.input.get("workspace_path", ""))
+        manifest_env = select_environment_manifest(resources.root, repo_path)
+
     if task.agent == Producer.CodingAgent:
         if repo and not task.input.get("workspace_path"):
             task.input["workspace_path"] = repo.path
         if not task.input.get("workspace_path") and task.input.get("repo_url"):
             task.input["workspace_path"] = str(layout.project_workspace(task.project_ref))
-        if environment:
+        if manifest_env is not None:
+            task.input["env_name"] = manifest_env.get("prefix") or manifest_env["env_id"]
+            task.input["_lease_env_id"] = manifest_env["env_id"]
+            if not task.input.get("env_policy"):
+                task.input["env_policy"] = "reuse_only"
+        elif environment:
             if not task.input.get("env_name"):
                 task.input["env_name"] = environment.id
             if not task.input.get("env_policy"):
@@ -71,7 +97,10 @@ def materialize_task_bindings(
             "repo_url", "copy_from", "external_repo_path")):
         task.input["external_repo_path" if share else "copy_from"] = repo.path
     task.input["allow_code_delegation"] = False
-    if environment:
+    if manifest_env is not None:
+        task.input["env_name"] = manifest_env.get("prefix") or manifest_env["env_id"]
+        task.input["_lease_env_id"] = manifest_env["env_id"]
+    elif environment:
         task.input["env_name"] = environment.id
 
 
@@ -148,11 +177,121 @@ def register_task_resources(
             certification=str(environment.get("certification", "")),
             created_by=task.agent,
             created_task=task.id,
+            # M2 bindings (ENVIRONMENT_MANIFEST_V1) — empty on legacy cards
+            manifest_path=str(environment.get("manifest_path", "")),
+            prefix=str(environment.get("prefix", "")),
+            spec_fingerprint=str(environment.get("spec_fingerprint", "")),
+            resolved_fingerprint=str(environment.get("resolved_fingerprint", "")),
+            manager=task.agent.value if isinstance(task.agent, Producer) else str(task.agent),
+            last_used_at=datetime.now(timezone.utc).isoformat(),
             metadata={
                 "policy": str(environment.get("policy", "")),
                 "audit_artifact": str(environment.get("audit_artifact", "")),
             },
         ))
+
+
+# ── M2: content-addressed environment selection (contracts/ENVIRONMENT_*_V1) ──
+
+_CERT_RANK = {"": 0, "none": 0, "verification": 1, "experiment": 2}
+
+
+def read_manifest(resource_root: str, env_id: str) -> dict | None:
+    """Read one ENVIRONMENT_MANIFEST_V1; None when absent or unreadable."""
+    path = Path(resource_root) / "environments" / env_id / "manifest.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def iter_manifests(resource_root: str):
+    """Yield every readable manifest under the resource root."""
+    envs_dir = Path(resource_root) / "environments"
+    if not envs_dir.is_dir():
+        return
+    for manifest_path in sorted(envs_dir.glob("*/manifest.json")):
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict) and data.get("env_id"):
+            yield data
+
+
+def select_environment_manifest(
+    resource_root: str, repo_path: str, min_certification: str = "",
+) -> dict | None:
+    """Propose a ready, non-drifted env manifest for a repo (cross-run).
+
+    Match key is provenance.repo_path — the orchestrator proposes a
+    candidate; the executing module re-verifies by fingerprint and re-audits
+    before reuse (the manifest never authorizes reuse by itself). Ranked by
+    certification, then most recently used.
+    """
+    if not repo_path:
+        return None
+    if min_certification and min_certification not in _CERT_RANK:
+        return None  # unknown certification vocabulary: fail closed
+    want_rank = _CERT_RANK.get(min_certification, 0)
+    candidates = []
+    for manifest in iter_manifests(resource_root):
+        if manifest.get("state") != "ready":
+            continue
+        provenance = manifest.get("provenance") or {}
+        if str(provenance.get("repo_path", "")) != repo_path:
+            continue
+        rank = _CERT_RANK.get(str(manifest.get("certification", "")), 0)
+        if rank < want_rank:
+            continue
+        candidates.append((rank, str(manifest.get("last_used_at") or ""), manifest))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+def acquire_lease(resource_root: str, env_id: str, run_id: str, task_id: str) -> str:
+    """Write a RESOURCE_LEASE_V1 for an env about to be used. Best-effort:
+    returns the lease path, or "" when it cannot be written (never blocks
+    dispatch — the lease protects cleanup, not execution)."""
+    if not resource_root or not env_id:
+        return ""
+    usage_dir = Path(resource_root) / "environments" / env_id / "usage"
+    now = datetime.now(timezone.utc).isoformat()
+    lease = {
+        "schema": "RESOURCE_LEASE_V1",
+        "lease_id": f"lease_{run_id}_{task_id}",
+        "env_id": env_id,
+        "run_id": run_id,
+        "task_id": task_id,
+        "host": socket.gethostname(),
+        "pid": os.getpid(),
+        "acquired_at": now,
+        "heartbeat_at": now,
+        "released_at": None,
+    }
+    try:
+        usage_dir.mkdir(parents=True, exist_ok=True)
+        path = usage_dir / f"lease_{run_id}_{task_id}.json"
+        path.write_text(json.dumps(lease, indent=2, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+    except Exception:
+        return ""
+
+
+def release_lease(lease_path: str) -> None:
+    """Mark a lease released. Best-effort; never raises."""
+    if not lease_path:
+        return
+    try:
+        path = Path(lease_path)
+        lease = json.loads(path.read_text(encoding="utf-8"))
+        lease["released_at"] = datetime.now(timezone.utc).isoformat()
+        path.write_text(json.dumps(lease, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def schedule_coding_repair(

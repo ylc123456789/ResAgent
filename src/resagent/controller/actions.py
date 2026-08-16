@@ -15,9 +15,11 @@ from .contracts import (
 )
 from ..persistence.workspace import WorkspaceLayout
 from ..resources import (
+    acquire_lease,
     materialize_dependency_artifacts,
     materialize_task_bindings,
     register_task_resources,
+    release_lease,
     resume_repaired_tasks,
     schedule_coding_repair,
 )
@@ -25,6 +27,12 @@ from ..resources import (
 
 class ControllerActions:
     """Action handlers shared by the public Controller loop."""
+
+    def _acquire_env_lease(self, state: ResearchState, task) -> str:
+        """Register a RESOURCE_LEASE_V1 when a manifest env was injected."""
+        root = getattr(self.resources, "root", "") if self.resources else ""
+        env_id = str(task.input.get("_lease_env_id", ""))
+        return acquire_lease(root, env_id, state.run.run_id, task.id)
 
     def _execute(self, state: ResearchState, planned: PlannedAction) -> Observation:
         layout = WorkspaceLayout(state.run.workspace_dir, state.run.run_id)
@@ -101,12 +109,14 @@ class ControllerActions:
         task = self._require_task(state, planned, Producer.CodingAgent)
         if isinstance(task, Observation):
             return task  # error observation from _require_task
-        materialize_task_bindings(state, task, layout, self.shared_workspace)
+        materialize_task_bindings(state, task, layout, self.shared_workspace,
+                                  resources=self.resources)
 
         task.status = TaskStatus.running
         attempt_num = len(task.attempts) + 1
         task.attempts.append(Attempt(attempt_number=attempt_num,
                                     started_at=datetime.now(timezone.utc)))
+        lease_path = self._acquire_env_lease(state, task)
 
         try:
             result = self.codingagent.execute(task, layout, attempt_num)
@@ -156,17 +166,21 @@ class ControllerActions:
                 detail=str(e),
                 task_ids=[task.id],
             )
+        finally:
+            release_lease(lease_path)
 
     def _handle_repro_agent(self, state, planned, layout) -> Observation:
         task = self._require_task(state, planned, Producer.ReproAgent)
         if isinstance(task, Observation):
             return task
-        materialize_task_bindings(state, task, layout, self.shared_workspace)
+        materialize_task_bindings(state, task, layout, self.shared_workspace,
+                                  resources=self.resources)
 
         task.status = TaskStatus.running
         attempt_num = len(task.attempts) + 1
         task.attempts.append(Attempt(attempt_number=attempt_num,
                                     started_at=datetime.now(timezone.utc)))
+        lease_path = self._acquire_env_lease(state, task)
 
         try:
             result = self.reproagent.execute(task, layout, attempt_num)
@@ -245,6 +259,8 @@ class ControllerActions:
                 detail=str(e),
                 task_ids=[task.id],
             )
+        finally:
+            release_lease(lease_path)
 
     def _next_retry_action(self, state: ResearchState) -> PlannedAction | None:
         """Retry transient failures before asking the planner for a new task."""
