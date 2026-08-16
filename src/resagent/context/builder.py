@@ -133,6 +133,7 @@ def build_codingagent_context(task: AgentTask) -> dict:
         "env_policy": task.input.get("env_policy", "auto"),
         "env_name": task.input.get("env_name", ""),
         "requires_gpu": bool(task.input.get("requires_gpu", False)),
+        "project_ref": task.project_ref,
     }
 
 

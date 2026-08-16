@@ -215,6 +215,7 @@ class CodingAgentAdapter:
             output_dir=out_dir,
             # M2: content-addressed env management (no-op when empty).
             resource_root=self.resource_root,
+            project_ref=spec.get("project_ref", ""),
         )
 
         result = run_code_task(task_spec)
