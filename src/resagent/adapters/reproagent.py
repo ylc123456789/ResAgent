@@ -175,6 +175,7 @@ class ReproAgentAdapter:
             resource_root=self.resource_root,
             reuse_mode=self.reuse_mode,
             project_ref=spec.get("project_ref", ""),
+            requires_gpu=bool(spec.get("requires_gpu", False)),
         )
 
         start = time.time()

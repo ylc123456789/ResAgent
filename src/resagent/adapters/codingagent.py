@@ -202,6 +202,7 @@ class CodingAgentAdapter:
             branch=spec.get("branch", ""),
             env_policy=spec.get("env_policy", "auto"),
             env_name=spec.get("env_name", ""),
+            requires_gpu=bool(spec.get("requires_gpu", False)),
             task_goal=spec.get("task_goal", ""),
             constraints=spec.get("constraints", []),
             verify_commands=spec.get("verify_commands", []),

@@ -659,11 +659,110 @@ def case_m2_env_reuse(config, workspace: Path) -> dict:
     }
 
 
+def case_m2_cert_upgrade(config, workspace: Path) -> dict:
+    """M2-P5: CodingAgent verification env upgraded by reproagent to experiment.
+
+    The cross-module chain (§6.3): CodingAgent (auto) creates a
+    verification-level env for a repo; a later ReproAgent experiment on the
+    SAME repo must find it via the manifest, verify fingerprint parity,
+    audit it, and upgrade its certification to experiment — one env, no
+    second creation.
+    """
+    import copy as _copy
+
+    repo = workspace / "fixtures" / f"m2cert-{int(time.time())}"
+    repo.mkdir(parents=True, exist_ok=False)
+    (repo / "README.md").write_text("# M2 cert-upgrade fixture\n", encoding="utf-8")
+    # python pinned here so BOTH modules compute the same python identity
+    (repo / "environment.yml").write_text(
+        "dependencies:\n  - python=3.10\n", encoding="utf-8",
+    )
+    (repo / "requirements.txt").write_text("numpy\n", encoding="utf-8")
+    (repo / "train.py").write_text(
+        "print('Test Acc 0.9500')\n", encoding="utf-8",
+    )
+    for command in (["git", "init"],
+                    ["git", "config", "user.email", "acceptance@example.com"],
+                    ["git", "config", "user.name", "Acceptance Test"],
+                    ["git", "add", "."],
+                    ["git", "commit", "-m", "fixture"]):
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+
+    cfg = _copy.copy(config)
+    cfg.resources = _copy.copy(config.resources)
+    cfg.resources.root = str(workspace / "m2cert-resources")
+    cfg.resources.reuse_mode = "content_addressed"
+    root = Path(cfg.resources.root)
+
+    def run_once(tag: str, tasks: list) -> object:
+        state = init_run(
+            f"M2 certification upgrade ({tag})",
+            workspace_root=str(workspace / "runs"), config=cfg,
+        )
+        state.tasks.clear()  # synthetic scenario
+        state.analysis_required = False  # engineering scenario
+        state.tasks.extend(tasks)
+        controller = build_controller(cfg, mock=False)
+        controller.planner = SequencePlanner([
+            PlannedAction(
+                ActionName.call_coding_agent
+                if t.agent == Producer.CodingAgent else ActionName.call_repro_agent,
+                {"task_id": t.id},
+            )
+            for t in tasks
+        ] + [PlannedAction(ActionName.finish, {"summary": f"{tag} done"})])
+        _step_until_stop(state, controller, max_steps=len(tasks) + 1)
+        return state
+
+    # stage 1: CodingAgent creates the verification env for this repo
+    coding = AgentTask(
+        id="task_001", agent=Producer.CodingAgent, kind=AgentKind.coding_task,
+        capability="modify_code", required=True, project_ref="m2cert",
+        input={
+            "workspace_path": str(repo),
+            "task_goal": "Add a '# verified' comment line at the top of train.py.",
+            "verify_commands": ["python train.py"],
+            "env_policy": "auto",
+        },
+    )
+    state1 = run_once("verify", [coding])
+    assert state1.run.status == RunStatus.completed
+    manifests = {m["env_id"]: m for m in iter_manifests(str(root))}
+    assert len(manifests) == 1, f"expected 1 env, got {sorted(manifests)}"
+    env_id, manifest = next(iter(manifests.items()))
+    assert manifest["certification"] == "verification", manifest["certification"]
+    assert manifest["manager"] == "codingagent"
+
+    # stage 2: reproagent experiment on the SAME repo must reuse + upgrade it
+    repro = AgentTask(
+        id="task_001", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+        capability="execute_experiment", required=True, project_ref="m2cert",
+        input={
+            "workspace_path": str(repo),
+            "experiment_goal": "Run train.py; report output.",
+        },
+    )
+    state2 = run_once("upgrade", [repro])
+    assert state2.run.status == RunStatus.completed
+    after = {m["env_id"]: m for m in iter_manifests(str(root))}
+    assert len(after) == 1, f"upgrade must not create a new env: {sorted(after)}"
+    upgraded = after[env_id]
+    assert upgraded["certification"] == "experiment", (
+        f"expected experiment certification, got {upgraded['certification']}"
+    )
+    assert any(a.get("level") == "experiment" and a.get("outcome") == "pass"
+               for a in upgraded.get("audits", [])), "no experiment-level audit"
+
+    return {"env_id": env_id, "upgraded_to": upgraded["certification"],
+            "runs": [state1.run.run_id, state2.run.run_id]}
+
+
 CASES = {"coding": case_coding, "repro": case_repro,
          "dependency-chain": case_dependency_chain,
          "fan-in-analysis": case_fan_in_analysis,
          "env-reuse": case_env_reuse,
-         "m2-env-reuse": case_m2_env_reuse}
+         "m2-env-reuse": case_m2_env_reuse,
+         "m2-cert-upgrade": case_m2_cert_upgrade}
 
 
 def _git_metadata(path: Path) -> dict:

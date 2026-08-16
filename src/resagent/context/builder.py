@@ -132,6 +132,7 @@ def build_codingagent_context(task: AgentTask) -> dict:
         "branch": task.input.get("branch", ""),
         "env_policy": task.input.get("env_policy", "auto"),
         "env_name": task.input.get("env_name", ""),
+        "requires_gpu": bool(task.input.get("requires_gpu", False)),
     }
 
 
@@ -166,6 +167,7 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "mirror_profile": task.input.get("mirror_profile", ""),
         "codingagent_path": task.input.get("codingagent_path", ""),
         "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
+        "requires_gpu": bool(task.input.get("requires_gpu", False)),
         "project_ref": task.project_ref,
     }
 
