@@ -84,10 +84,12 @@ def _enforce_bounded_scope(state) -> None:
     """
     keep: set[str] = set()
     first_experiment = None
-    # A code patch belongs to the committed plan only when it precedes the
-    # first analysis in creation order (i.e. it exists to make the bounded
-    # experiment runnable); modify_code proposed in a follow-up wave is
-    # scope expansion and is declined like any other follow-up.
+    # A code patch belongs to the committed plan when it precedes the first
+    # analysis in creation order (planned up-front to make the bounded
+    # experiment runnable) OR when it repairs the kept experiment mid-flight
+    # (blocked->repair loop: source is the experiment task id). modify_code
+    # proposed in a follow-up wave has a decision as its source and is
+    # declined like any other follow-up.
     first_analysis_index = next(
         (i for i, task in enumerate(state.tasks)
          if task.capability == "analyze_results"),
@@ -96,7 +98,10 @@ def _enforce_bounded_scope(state) -> None:
     for index, task in enumerate(state.tasks):
         if task.agent == Producer.ExpAgent and task.action_id == "initial_consult":
             keep.add(task.id)
-        elif task.capability == "modify_code" and index < first_analysis_index:
+        elif task.capability == "modify_code" and (
+            index < first_analysis_index
+            or (first_experiment is not None and task.source == first_experiment.id)
+        ):
             keep.add(task.id)
         elif (task.agent == Producer.ReproAgent
               and task.capability in {"execute_experiment", "reproduce_experiment"}):
