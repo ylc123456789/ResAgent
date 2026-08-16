@@ -195,6 +195,20 @@ def test_lease_acquire_and_release(tmp_path):
     assert acquire_lease("", "env", "run", "task") == ""
 
 
+def test_lease_rejects_non_ready_environment(tmp_path):
+    manifest = _manifest("resenv_a_111111111111", "/repo/a")
+    manifest["state"] = "deleting"
+    _write_manifest(tmp_path, manifest)
+
+    path = acquire_lease(
+        str(tmp_path), "resenv_a_111111111111", "res-1", "task_001",
+    )
+
+    assert path == ""
+    usage = tmp_path / "environments" / manifest["env_id"] / "usage"
+    assert not usage.exists()
+
+
 # ── dispatch-time injection ──────────────────────────────────────────
 
 class _FakeRepro:
@@ -263,6 +277,34 @@ def test_content_addressed_injection_and_lease(tmp_path):
     assert len(leases) == 1
     lease = json.loads(leases[0].read_text(encoding="utf-8"))
     assert lease["released_at"] is not None
+
+
+def test_dispatch_does_not_run_without_required_lease(tmp_path):
+    root = tmp_path / "res"
+    env_id = "resenv_a_111111111111"
+    manifest = _manifest(env_id, "/repo/a", state="deleting")
+    _write_manifest(root, manifest)
+    state = init_state("m2-lease-race", str(tmp_path), "goal")
+    task = _repo_task(state, "/repo/a")
+    task.input.update({
+        "_lease_env_id": env_id,
+        "env_name": manifest["prefix"],
+    })
+    result_path = tmp_path / "must-not-run.md"
+
+    ctrl = _controller(_resources(root), _FakeRepro(result_path))
+    ctrl.planner = type("P", (), {
+        "choose_action": lambda self, s: PlannedAction(
+            ActionName.call_repro_agent, {"task_id": "task_001"},
+        ),
+        "classify_failure": lambda self, t, e: {"category": "transient"},
+    })()
+    obs = ctrl.step(state)
+
+    assert obs.result == "error"
+    assert "resource temporarily unavailable" in obs.detail
+    assert task.status == TaskStatus.pending
+    assert not result_path.exists()
 
 
 def test_legacy_mode_ignores_manifests(tmp_path):

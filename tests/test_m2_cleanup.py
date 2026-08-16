@@ -2,9 +2,17 @@
 
 import json
 import os
+import shutil
+import threading
+import time
 from pathlib import Path
 
 from resagent.cleanup import apply_cleanup, inspect_resources, plan_cleanup
+from resagent.resources import (
+    acquire_lease,
+    environment_lifecycle_lock,
+    read_manifest,
+)
 
 
 def _manifest(env_id: str, *, manager="reproagent", state="ready",
@@ -160,6 +168,86 @@ def test_apply_rechecks_full_protection_set(tmp_path):
     }})
     assert result["deleted"] == []
     assert result["skipped"][0]["reason"] == "recently_used_at_apply"
+
+
+def test_failed_delete_leaves_recoverable_state(tmp_path):
+    root = tmp_path / "res"
+    env_id = "resenv_fail_555555555555"
+    _write_env(root, _manifest(env_id, last_used_at="2020-01-01T00:00:00Z"))
+
+    result = apply_cleanup(
+        root,
+        plan_cleanup(root, min_unused_days=30),
+        deleters={"reproagent": lambda r, e: {
+            "env_id": e, "deleted": False, "reason": "os_error:test",
+        }},
+    )
+
+    assert result["deleted"] == []
+    assert read_manifest(str(root), env_id)["state"] == "failed"
+    retry_plan = plan_cleanup(root, min_unused_days=30)
+    assert retry_plan["candidates"][0]["env_id"] == env_id
+
+
+def test_unavailable_manager_does_not_claim_environment(tmp_path):
+    root = tmp_path / "res"
+    env_id = "resenv_unknown_666666666666"
+    _write_env(root, _manifest(
+        env_id, manager="unknown", last_used_at="2020-01-01T00:00:00Z",
+    ))
+
+    result = apply_cleanup(root, plan_cleanup(root, min_unused_days=30))
+
+    assert result["skipped"][0]["reason"] == "manager_unavailable:unknown"
+    assert read_manifest(str(root), env_id)["state"] == "ready"
+
+
+def test_stale_deleting_is_recoverable_but_live_delete_is_protected(tmp_path):
+    root = tmp_path / "res"
+    env_id = "resenv_stale_777777777777"
+    _write_env(root, _manifest(
+        env_id, state="deleting", last_used_at="2020-01-01T00:00:00Z",
+    ))
+
+    plan = plan_cleanup(root, min_unused_days=30)
+    assert plan["candidates"][0]["reason"] == "stale_deleting"
+
+    with environment_lifecycle_lock(root, env_id):
+        protected = plan_cleanup(root, min_unused_days=30)["protected"]
+        assert protected == [{"env_id": env_id, "reason": "deleting_active"}]
+
+
+def test_cleanup_and_lease_acquisition_are_serialized(tmp_path):
+    root = tmp_path / "res"
+    env_id = "resenv_race_888888888888"
+    prefix = _write_env(
+        root, _manifest(env_id, last_used_at="2020-01-01T00:00:00Z"),
+    )
+    lease_results = []
+    worker = None
+
+    def acquire_during_delete():
+        lease_results.append(acquire_lease(str(root), env_id, "run", "task"))
+
+    def fake_delete(root_path, target_env_id):
+        nonlocal worker
+        worker = threading.Thread(target=acquire_during_delete)
+        worker.start()
+        time.sleep(0.1)
+        assert worker.is_alive()
+        shutil.rmtree(root_path / "environments" / target_env_id)
+        shutil.rmtree(prefix)
+        return {"env_id": target_env_id, "deleted": True, "reason": ""}
+
+    result = apply_cleanup(
+        root,
+        plan_cleanup(root, min_unused_days=30),
+        deleters={"reproagent": fake_delete},
+    )
+    worker.join(timeout=2)
+
+    assert result["deleted"] == [env_id]
+    assert lease_results == [""]
 
 
 def test_inspect_resources_summary(tmp_path):

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import socket
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -206,6 +209,103 @@ def read_manifest(resource_root: str, env_id: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _lifecycle_lock_path(resource_root: str | Path, env_id: str) -> Path:
+    if not env_id or Path(env_id).name != env_id:
+        raise ValueError(f"invalid environment id: {env_id!r}")
+    return Path(resource_root) / "locks" / "lifecycle" / f"{env_id}.lock"
+
+
+def lifecycle_lock_alive(
+    resource_root: str | Path,
+    env_id: str,
+    *,
+    malformed_grace_seconds: float = 30.0,
+) -> bool:
+    """Return whether an environment lifecycle lock has a live owner."""
+    path = _lifecycle_lock_path(resource_root, env_id)
+    try:
+        owner = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except Exception:
+        try:
+            return time.time() - path.stat().st_mtime < malformed_grace_seconds
+        except OSError:
+            return False
+
+    host = str(owner.get("host", ""))
+    try:
+        pid = int(owner.get("pid", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if host and host != socket.gethostname():
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def environment_lifecycle_lock(
+    resource_root: str | Path,
+    env_id: str,
+    *,
+    timeout_seconds: float = 30.0,
+):
+    """Serialize lease acquisition and cleanup for one environment."""
+    path = _lifecycle_lock_path(resource_root, env_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex
+    owner = {
+        "token": token,
+        "host": socket.gethostname(),
+        "pid": os.getpid(),
+        "acquired_at": datetime.now(timezone.utc).isoformat(),
+    }
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(owner, handle)
+            break
+        except FileExistsError:
+            try:
+                observed = path.stat()
+            except FileNotFoundError:
+                continue
+            if not lifecycle_lock_alive(resource_root, env_id):
+                try:
+                    current = path.stat()
+                    if (current.st_dev, current.st_ino) == (
+                        observed.st_dev, observed.st_ino,
+                    ):
+                        path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"resource temporarily unavailable: lifecycle lock for {env_id}"
+                )
+            time.sleep(0.05)
+
+    try:
+        yield
+    finally:
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+            if current.get("token") == token:
+                path.unlink()
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+
+
 def iter_manifests(resource_root: str):
     """Yield every readable manifest under the resource root."""
     envs_dir = Path(resource_root) / "environments"
@@ -274,10 +374,10 @@ def select_environment_manifest(
     return candidates[0][2]
 
 
-def acquire_lease(resource_root: str, env_id: str, run_id: str, task_id: str) -> str:
-    """Write a RESOURCE_LEASE_V1 for an env about to be used. Best-effort:
-    returns the lease path, or "" when it cannot be written (never blocks
-    dispatch — the lease protects cleanup, not execution)."""
+def acquire_lease(
+    resource_root: str, env_id: str, run_id: str, task_id: str,
+) -> str:
+    """Write a lease only while the environment is available for use."""
     if not resource_root or not env_id:
         return ""
     usage_dir = Path(resource_root) / "environments" / env_id / "usage"
@@ -295,11 +395,19 @@ def acquire_lease(resource_root: str, env_id: str, run_id: str, task_id: str) ->
         "released_at": None,
     }
     try:
-        usage_dir.mkdir(parents=True, exist_ok=True)
-        path = usage_dir / f"lease_{run_id}_{task_id}.json"
-        path.write_text(json.dumps(lease, indent=2, ensure_ascii=False), encoding="utf-8")
-        return str(path)
-    except Exception:
+        with environment_lifecycle_lock(resource_root, env_id):
+            manifest = read_manifest(resource_root, env_id)
+            if manifest is None or manifest.get("state") != "ready":
+                return ""
+            usage_dir.mkdir(parents=True, exist_ok=True)
+            path = usage_dir / f"lease_{run_id}_{task_id}.json"
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps(lease, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+            tmp.replace(path)
+            return str(path)
+    except (OSError, TimeoutError, ValueError):
         return ""
 
 

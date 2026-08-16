@@ -24,7 +24,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .resources import iter_manifests, read_manifest
+from .resources import (
+    environment_lifecycle_lock,
+    iter_manifests,
+    lifecycle_lock_alive,
+    read_manifest,
+)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -132,6 +137,10 @@ def _protection_reason(
         root, str(manifest.get("spec_fingerprint", ""))
     ):
         return "creating_active"
+    if state == "deleting":
+        if lifecycle_lock_alive(root, env_id):
+            return "deleting_active"
+        return ""
     if str(manifest.get("prefix", "")) and not _contained_prefix(root, manifest):
         return "prefix_outside_root"  # containment: never a candidate
     if state == "creating":
@@ -193,6 +202,8 @@ def plan_cleanup(
             unused_days = (now - last_used).total_seconds() / 86400.0
         if state == "creating":
             candidate_reason = "stale_creating"
+        elif state == "deleting":
+            candidate_reason = "stale_deleting"
         else:
             candidate_reason = state if state != "ready" else "expired"
         candidates.append({
@@ -253,6 +264,15 @@ def _manager_deleter(manager: str, reproagent_path: str, codingagent_path: str):
     return None
 
 
+def _write_manifest(root: Path, env_id: str, manifest: dict) -> None:
+    path = root / "environments" / env_id / "manifest.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
 def apply_cleanup(
     root: str | Path,
     plan: dict,
@@ -271,47 +291,74 @@ def apply_cleanup(
     results: list[dict] = []
     for candidate in plan.get("candidates", []):
         env_id = str(candidate.get("env_id", ""))
-        # Re-read THIS candidate's manifest and the lease set fresh —
-        # snapshots go stale between the plan and each deletion in this loop.
-        manifest = read_manifest(str(root), env_id)
-        if manifest is None:
-            results.append({"env_id": env_id, "deleted": False,
-                            "reason": "manifest_gone"})
-            continue
-        reason = _protection_reason(
-            root, manifest, _active_leases(root), _now(),
-            plan.get("min_unused_days", 30.0),
-        )
-        if reason:
-            results.append({"env_id": env_id, "deleted": False,
-                            "reason": f"{reason}_at_apply"})
-            continue
-        # Claim before delegating: concurrent readers see "deleting".
-        manifest["state"] = "deleting"
-        manifest["updated_at"] = _now().isoformat()
-        manifest_path = root / "environments" / env_id / "manifest.json"
         try:
-            tmp = manifest_path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
-                           encoding="utf-8")
-            tmp.replace(manifest_path)
-        except OSError as exc:
+            with environment_lifecycle_lock(root, env_id, timeout_seconds=5.0):
+                # The plan is only a snapshot. Re-read manifest and leases
+                # while holding the same lock used by lease acquisition.
+                manifest = read_manifest(str(root), env_id)
+                if manifest is None:
+                    results.append({"env_id": env_id, "deleted": False,
+                                    "reason": "manifest_gone"})
+                    continue
+                reason = _protection_reason(
+                    root, manifest, _active_leases(root), _now(),
+                    plan.get("min_unused_days", 30.0),
+                )
+                if reason and reason != "deleting_active":
+                    results.append({"env_id": env_id, "deleted": False,
+                                    "reason": f"{reason}_at_apply"})
+                    continue
+
+                manager = str(manifest.get("manager", ""))
+                deleter = (deleters or {}).get(manager)
+                if deleter is None:
+                    try:
+                        deleter = _manager_deleter(
+                            manager, reproagent_path, codingagent_path,
+                        )
+                    except Exception:
+                        deleter = None
+                if deleter is None:
+                    results.append({
+                        "env_id": env_id,
+                        "deleted": False,
+                        "reason": f"manager_unavailable:{manager}",
+                    })
+                    continue
+
+                manifest["state"] = "deleting"
+                manifest["updated_at"] = _now().isoformat()
+                _write_manifest(root, env_id, manifest)
+                try:
+                    result = deleter(root, env_id)
+                except Exception as exc:
+                    result = {
+                        "env_id": env_id,
+                        "deleted": False,
+                        "reason": f"deleter_error:{exc}",
+                    }
+                if not isinstance(result, dict):
+                    result = {
+                        "env_id": env_id,
+                        "deleted": False,
+                        "reason": "invalid_deleter_result",
+                    }
+                if not result.get("deleted"):
+                    current = read_manifest(str(root), env_id)
+                    if current is not None:
+                        current["state"] = "failed"
+                        current["updated_at"] = _now().isoformat()
+                        try:
+                            _write_manifest(root, env_id, current)
+                        except OSError as exc:
+                            result["reason"] = (
+                                f"{result.get('reason', 'delete_failed')};"
+                                f"state_recovery_failed:{exc}"
+                            )
+                results.append(result)
+        except (OSError, TimeoutError, ValueError) as exc:
             results.append({"env_id": env_id, "deleted": False,
-                            "reason": f"claim_failed:{exc}"})
-            continue
-        manager = str(manifest.get("manager", ""))
-        deleter = (deleters or {}).get(manager)
-        if deleter is None:
-            try:
-                deleter = _manager_deleter(manager, reproagent_path,
-                                           codingagent_path)
-            except Exception:
-                deleter = None
-        if deleter is None:
-            results.append({"env_id": env_id, "deleted": False,
-                            "reason": f"manager_unavailable:{manager}"})
-            continue
-        results.append(deleter(root, env_id))
+                            "reason": f"lifecycle_claim_failed:{exc}"})
     return {
         "applied_at": _now().isoformat(),
         "results": results,

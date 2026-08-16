@@ -32,7 +32,12 @@ class ControllerActions:
         """Register a RESOURCE_LEASE_V1 when a manifest env was injected."""
         root = getattr(self.resources, "root", "") if self.resources else ""
         env_id = str(task.input.get("_lease_env_id", ""))
-        return acquire_lease(root, env_id, state.run.run_id, task.id)
+        lease_path = acquire_lease(root, env_id, state.run.run_id, task.id)
+        if env_id and not lease_path:
+            raise RuntimeError(
+                f"resource temporarily unavailable: environment {env_id}"
+            )
+        return lease_path
 
     def _execute(self, state: ResearchState, planned: PlannedAction) -> Observation:
         layout = WorkspaceLayout(state.run.workspace_dir, state.run.run_id)
@@ -116,9 +121,10 @@ class ControllerActions:
         attempt_num = len(task.attempts) + 1
         task.attempts.append(Attempt(attempt_number=attempt_num,
                                     started_at=datetime.now(timezone.utc)))
-        lease_path = self._acquire_env_lease(state, task)
+        lease_path = ""
 
         try:
+            lease_path = self._acquire_env_lease(state, task)
             result = self.codingagent.execute(task, layout, attempt_num)
             state.register_artifact(result["artifact"], task)
             outcome = result.get("outcome", "completed")
@@ -180,9 +186,10 @@ class ControllerActions:
         attempt_num = len(task.attempts) + 1
         task.attempts.append(Attempt(attempt_number=attempt_num,
                                     started_at=datetime.now(timezone.utc)))
-        lease_path = self._acquire_env_lease(state, task)
+        lease_path = ""
 
         try:
+            lease_path = self._acquire_env_lease(state, task)
             result = self.reproagent.execute(task, layout, attempt_num)
             state.register_artifact(result["artifact"], task)
             task.attempts[-1].finished_at = datetime.now(timezone.utc)

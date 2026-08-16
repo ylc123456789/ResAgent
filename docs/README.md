@@ -8,13 +8,7 @@
 
 ## active/ — 当前进行
 
-| 文档 | 内容 |
-|---|---|
-| RESOURCE_MANAGEMENT_MILESTONE_2.md | 里程碑二：内容寻址环境、manifest、并发锁、复用前审计、漂移检测、跨 run 复用与安全清理 |
-| handoffs/M2_P1_REPROAGENT.md | 交办单：reproagent 环境管理器（P1） |
-| handoffs/M2_P2_CODINGAGENT.md | 交办单：CodingAgent 环境政策对齐（P2） |
-| handoffs/M2_P1_FIXUP.md | P1 修复①：env_name 是候选不是绑定（已修复 c732348） |
-| handoffs/M2_P1_FIXUP2.md | P1 修复②：resolved 指纹覆盖 spec 包清单（进行中） |
+当前没有正在实施的里程碑。新工作开始时在这里建立唯一的 active 计划，完成后归档到 `completed/`。
 
 ## reference/ — 常驻（现行契约与架构）
 
@@ -30,10 +24,11 @@
 
 里程碑计划、交办单、handoff、审计报告。内容反映**当时**的语境，不作为现状依据；其中被取代的已在文首标注 SUPERSEDED。
 
-- 实验执行与 V2 主线：`EXPERIMENT_OPERATOR_REDESIGN`（里程碑一 P0-P4 已完成，里程碑二已抽离到 active）、`FOUR_MODULE_READABILITY_REFACTOR_PLAN`、`REFACTOR_PHASE0_BASELINE`、`EXECUTION_CONTRACT_V1`（SUPERSEDED）、`INTERFACE_REDESIGN`（SUPERSEDED）
+- 实验执行与 V2 主线：`EXPERIMENT_OPERATOR_REDESIGN`（里程碑一 P0-P4 已完成）、`FOUR_MODULE_READABILITY_REFACTOR_PLAN`、`REFACTOR_PHASE0_BASELINE`、`EXECUTION_CONTRACT_V1`（SUPERSEDED）、`INTERFACE_REDESIGN`（SUPERSEDED）
+- 资源管理：`RESOURCE_MANAGEMENT_MILESTONE_2`（内容寻址环境、manifest、audit、跨 run 复用、租约与安全清理，2026-08-16 完成）
 - 交互架构历史：`SYSTEM_INTERACTION_ARCHITECTURE`（旧 IntakeRouter 提案，已被 `CONVERSATION_LAYER_DESIGN` 取代）
 - 修复计划：`CLOUD_E2E_FINDINGS_AND_ORCHESTRATION_REPAIR_PLAN`、`COMPREHENSIVE_TEST_ROOT_CAUSE_AND_GENERIC_REPAIR_PLAN`、`PHASE_A_REPAIR_COMPLETION_PLAN`
 - 边界与审计：`BOUNDARY_AUDIT_REPORT`、`EXPAGENT_BOUNDARY_FIXES`、`RESAGENT_BOUNDARY_NOTES`
 - 交办单：`EXPAGENT_INTEGRATION_REQUEST`、三个 `*_ARTIFACT_REQUEST`、`WORKSPACE_HYGIENE_INTEGRATION_REQUEST`、两个 `*_SESSION_FIXES`、两个 `*_P4_FOLLOWUP`、`IMPLEMENTATION_SCOPE_AND_HANDOFF`
 - 对话层交付：`HANDOVER_CONVERSATION_LAYER`（§6 仍列有未来候选项：LLM 压缩 scratch_summary、长跑异步化、`--check-config` 等）
-- `handoffs/`：两个跨模块交接单
+- `handoffs/`：跨模块交接单，以及里程碑二 P1/P2 交办与修复记录

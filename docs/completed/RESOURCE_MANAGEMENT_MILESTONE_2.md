@@ -2,16 +2,28 @@
 
 **日期**：2026-08-16
 
-**状态**：ACTIVE，待 P0 契约评审后开始实现
+**状态**：COMPLETED（2026-08-16）
 
 **前置基线**：里程碑一 P0-P4 和 V2 科学编排主线已完成，tag `v2-validated-2026-08-15`
 
 **主要模块**：ResAgent、reproagent、CodingAgent；ExpAgent 无代码改动
 
 **关联契约**：
-[`EXPERIMENT_OPERATOR_REDESIGN.md`](../completed/EXPERIMENT_OPERATOR_REDESIGN.md)、
+[`EXPERIMENT_OPERATOR_REDESIGN.md`](EXPERIMENT_OPERATOR_REDESIGN.md)、
 [`SESSION_AND_PROJECT_MODEL.md`](../reference/SESSION_AND_PROJECT_MODEL.md)、
 [`ARTIFACT_AND_WORKSPACE_MANAGEMENT_CN.md`](../reference/ARTIFACT_AND_WORKSPACE_MANAGEMENT_CN.md)
+
+---
+
+## 完成凭证
+
+- ResAgent、reproagent、CodingAgent 已实现统一的 `ENVIRONMENT_SPEC_V1`、内容寻址环境、manifest、audit、跨 run 复用与资源租约；ExpAgent 无需感知物理环境。
+- 云端 M2 全量验收 7/7 通过：coding、repro、dependency-chain、fan-in-analysis、env-reuse、m2-env-reuse、m2-cert-upgrade。
+- 云端报告：`/root/autodl-tmp/resagent-workspace/m2-latest-20260816-all/logs/cloud_acceptance_report.json`。
+- 最终本地验收：ResAgent `201 passed`，reproagent `220 passed`，CodingAgent `142 passed`，ExpAgent `76 passed, 22 deselected`。
+- 确定性四模块闭环全部 8 项断言通过。
+- 清理与租约使用同一环境生命周期锁；并发竞争、删除失败恢复、失效 `deleting` 回收、活跃租约与路径越界均有确定性保护。
+- 真实 GPU、环境复用、认证升级和跨模块 EnvironmentSpec 一致性均已验收；本里程碑不再保留进行中的交办单。
 
 ---
 
