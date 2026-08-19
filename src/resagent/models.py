@@ -205,6 +205,7 @@ class UserDirective(BaseModel):
     text: str
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source_conversation: str = ""
+    handled: bool = False  # True once a re-plan task has been created for it
 
 
 class PendingQuestion(BaseModel):

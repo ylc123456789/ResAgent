@@ -220,6 +220,59 @@ def ensure_analysis_coverage(
     return task
 
 
+def ensure_directive_replan(state: ResearchState) -> AgentTask | None:
+    """Create one ExpAgent re-plan task for unhandled user directives.
+
+    A user directive (e.g. "改成单 seed", "直接 finish") must actually change
+    the plan. The controller has no direct "modify task" action, so the way to
+    comply is to hand the directive to ExpAgent as a fresh advisory task and let
+    it revise the action graph. This is an orchestration invariant fix, not an
+    LLM suggestion, and mirrors ensure_analysis_coverage.
+    """
+    unhandled = [d for d in state.user_directives if not d.handled]
+    if not unhandled:
+        return None
+
+    # Mark handled BEFORE creating the task, so a re-plan that itself pauses or
+    # fails does not re-trigger an infinite re-plan loop on the same directive.
+    for directive in unhandled:
+        directive.handled = True
+    directive_block = "\n".join(f"- {d.text}" for d in unhandled)
+
+    task = AgentTask(
+        id=f"task_{state.next_task_number():03d}",
+        source="user_directive",
+        agent=Producer.ExpAgent,
+        kind=AgentKind.advise,
+        priority=TaskPriority.high,
+        capability="",
+        required=True,
+        action_id="replan_from_directive",
+        input={
+            "description": (
+                "The user issued a directive that may change the plan. Revise "
+                "the scientific action graph accordingly."
+            ),
+            "task_goal": (
+                "The user issued this directive:\n"
+                f"{directive_block}\n\n"
+                "Revise the plan to comply: add, remove, or supersede tasks as "
+                "needed. If the current plan already complies, state that no "
+                "change is required."
+            ),
+        },
+    )
+    state.tasks.append(task)
+    state.decisions.append(DecisionRecord(
+        id=f"decision_{state.next_decision_number():03d}",
+        made_by="ResAgent",
+        reason="Orchestration invariant fix: a new user directive requires re-planning.",
+        selected_action=ActionName.call_exp_agent.value,
+        evidence=[d.text for d in unhandled],
+    ))
+    return task
+
+
 def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
     """Build exact actions the planner may choose in the current state.
 

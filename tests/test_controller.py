@@ -314,3 +314,46 @@ def test_expagent_task_receives_all_dependency_artifacts(tmp_path):
     assert [item["artifact_id"] for item in expagent.task.input["input_artifacts"]] == [
         "result_1", "result_2",
     ]
+
+
+def test_unhandled_directive_creates_replan_task(tmp_path):
+    """A new user directive must spawn an ExpAgent re-plan task so the planner
+    has a lever to change the plan (regression: directives reached the context
+    but the planner had no action to act on them)."""
+    from resagent.models import TaskPriority, UserDirective
+    from resagent.controller.contracts import ensure_directive_replan
+
+    state = init_state("directive-replan", str(tmp_path), "Goal")
+    state.user_directives.append(UserDirective(
+        text="改成单 seed", source_conversation="answer:q1",
+    ))
+
+    task = ensure_directive_replan(state)
+
+    assert task is not None
+    assert task.agent == Producer.ExpAgent
+    assert task.kind == AgentKind.advise
+    assert task.action_id == "replan_from_directive"
+    assert task.priority == TaskPriority.high
+    assert "改成单 seed" in task.input["task_goal"]
+    assert all(d.handled for d in state.user_directives)
+    # Idempotent: a second call must not create a duplicate task.
+    assert ensure_directive_replan(state) is None
+
+
+def test_step_surfaces_directive_as_replan_task(tmp_path):
+    """A loop step with an unhandled directive must register a re-plan task."""
+    from resagent.models import UserDirective
+
+    ctrl = _build_mock_controller()
+    state = init_state("step-replan", str(tmp_path), "Goal")
+    state.user_directives.append(UserDirective(
+        text="先不做方差，单 seed", source_conversation="answer:q1",
+    ))
+
+    ctrl.step(state)
+
+    replan = [t for t in state.tasks if t.action_id == "replan_from_directive"]
+    assert len(replan) == 1
+    assert replan[0].agent == Producer.ExpAgent
+    assert all(d.handled for d in state.user_directives)

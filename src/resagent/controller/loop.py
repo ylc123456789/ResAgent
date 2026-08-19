@@ -13,7 +13,7 @@ from ..adapters.expagent import ExpAgentAdapter
 from ..adapters.codingagent import CodingAgentAdapter
 from ..adapters.reproagent import ReproAgentAdapter
 from ..persistence.state import save_state
-from .contracts import TERMINAL_RUN_STATUSES
+from .contracts import TERMINAL_RUN_STATUSES, ensure_directive_replan
 
 
 class Controller(ControllerActions):
@@ -58,6 +58,10 @@ class Controller(ControllerActions):
             state.observations.append(observation)
             state.run.status = RunStatus.paused
             return observation
+
+        # Surface any new user directive as a re-plan task before choosing the
+        # next action, so the planner has a lever to actually change the plan.
+        ensure_directive_replan(state)
 
         try:
             planned = self._next_retry_action(state) or self.planner.choose_action(state)

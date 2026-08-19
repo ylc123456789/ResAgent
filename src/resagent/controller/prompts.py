@@ -86,6 +86,12 @@ Be decisive. One action per turn. Prefer action over over-analysis.
 If the context contains a "User Directives" section, those are explicit \
 instructions from the user. They take priority over your own judgment — \
 follow them unless they are clearly impossible or unsafe.
+
+When a user directive requires the plan to change (different hyperparameters, \
+fewer runs, stop and conclude, etc.), a "replan_from_directive" ExpAgent \
+advisory task is already registered in the task list. Dispatch that task with \
+call_exp_agent (its task_id) BEFORE executing any pending experiment the \
+directive may conflict with, so ExpAgent can revise the action graph.
 """
 
 
