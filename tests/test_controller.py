@@ -159,6 +159,20 @@ def test_submit_user_response_clears_question_and_resumes(tmp_path):
     assert state.answered_questions[-1].response == "yes, proceed"
 
 
+def test_submit_user_response_becomes_user_directive(tmp_path):
+    """The answer must reach user_directives so the controller prompt actually
+    sees and obeys it (regression: answers used to dead-end in answered_questions)."""
+    from resagent.models import PendingQuestion
+    from resagent.persistence.state import submit_user_response
+
+    state = init_state("answer-run", str(tmp_path), "Goal")
+    state.pending_question = PendingQuestion(question_id="q_001", text="Proceed?")
+
+    submit_user_response(state, "q_001", "stop now")
+
+    assert state.user_directives[-1].text == "stop now"
+
+
 def test_paused_run_never_calls_planner(tmp_path):
     from resagent.models import PendingQuestion, RunStatus
 

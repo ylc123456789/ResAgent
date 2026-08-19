@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..models import ResearchState, ResearchRun, RunStatus, TaskStatus
+from ..models import ResearchState, ResearchRun, RunStatus, TaskStatus, UserDirective
 
 
 def workspace_path(workspace_dir: str, run_id: str) -> Path:
@@ -86,4 +86,12 @@ def submit_user_response(state: ResearchState, question_id: str, response: str) 
             task.error = ""
     state.answered_questions.append(question)
     state.pending_question = None
+    # Surface the answer as a User Directive so the controller actually sees and
+    # obeys it (the controller prompt already says directives take priority).
+    # Without this, answers only land in answered_questions — a dead end the
+    # controller loop never reads — so "stop / finish" is silently ignored.
+    state.user_directives.append(UserDirective(
+        text=answer,
+        source_conversation=f"answer:{question_id}",
+    ))
     state.run.status = RunStatus.running
