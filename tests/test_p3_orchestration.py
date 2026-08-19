@@ -228,6 +228,44 @@ def test_relative_path_in_goal_is_not_absolute_workspace(tmp_path):
     assert tasks[0].input["workspace_path"] == ""
 
 
+def test_goal_repo_url_is_threaded_to_modify_code(tmp_path):
+    """A single repo URL in the goal is threaded to a modify_code task so the
+    executor can clone it, instead of being lost (upstream emits no URL)."""
+    state = init_state(
+        "se-block", str(tmp_path),
+        "在 mixup-cifar10 仓库（https://github.com/facebookresearch/mixup-cifar10）的 models/resnet.py 里实现 SE block",
+    )
+    tasks, issues = actions_to_tasks([
+        {
+            "action_id": "modify", "capability": "modify_code",
+            "objective": "add SE block", "rationale": "", "depends_on": [],
+            "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
+        },
+    ], state, "decision", 1, registry=make_registry())
+    assert issues == []
+    assert tasks[0].input["repo_url"] == "https://github.com/facebookresearch/mixup-cifar10"
+    assert tasks[0].input["workspace_path"] == ""
+
+
+def test_ambiguous_goal_urls_do_not_thread_repo_url(tmp_path):
+    """Two URLs in the goal are ambiguous; no repo_url is threaded."""
+    state = init_state(
+        "amb", str(tmp_path),
+        "compare https://github.com/a/one.git and https://github.com/b/two.git",
+    )
+    tasks, issues = actions_to_tasks([
+        {
+            "action_id": "modify", "capability": "modify_code",
+            "objective": "add", "rationale": "", "depends_on": [],
+            "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
+        },
+    ], state, "decision", 1, registry=make_registry())
+    assert issues == []
+    assert tasks[0].input["repo_url"] == ""
+
+
 def test_reproduce_patch_experiment_chain_reuses_registered_resources(tmp_path):
     state = init_state("e2e", str(tmp_path), "reproduce, patch and run")
     tasks, issues = actions_to_tasks([

@@ -56,6 +56,13 @@ def actions_to_tasks(
             )
             if needs_workspace else ""
         )
+        # modify_code with no prior workspace: thread the goal's repo URL so the
+        # executor can clone the repo itself. The URL is otherwise lost — ExpAgent
+        # emits no physical URL and there is no reproduce task to inherit from.
+        if (capability == "modify_code"
+                and not str(action.get("repo_url", "")).strip()
+                and not workspace_path):
+            action = {**action, "repo_url": _extract_repo_url(state.run.research_goal)}
         task_input = _task_input(action, workspace_path)
         # Fingerprint on logical identity only. Physical fields ResAgent resolves
         # (workspace_path, env) must NOT change the identity across
@@ -128,6 +135,7 @@ def _task_input(action: dict, workspace_path: str) -> dict:
             "constraints": list(action.get("constraints") or []),
             "verify_commands": list(action.get("verify_commands") or []),
             "expected_artifacts": list(action.get("expected_artifacts") or []),
+            "repo_url": str(action.get("repo_url", "")).strip(),
         })
     elif capability in {"reproduce_experiment", "execute_experiment"}:
         input_data.update({
@@ -209,3 +217,17 @@ def infer_workspace_path(
                 if path:
                     return path
     return ""
+
+
+def _extract_repo_url(goal: str) -> str:
+    """Return the single repo URL mentioned in the goal, or "" if none/ambiguous.
+
+    Conservative, like workspace inference: only an unambiguous single URL is
+    returned, so a goal comparing two repos never picks the wrong one.
+    """
+    seen: list[str] = []
+    for url in re.findall(r"https?://[A-Za-z0-9._~:/?#@!$&'*+,;=%-]+", goal or ""):
+        url = url.rstrip(".,;:!?")
+        if url and url not in seen:
+            seen.append(url)
+    return seen[0] if len(seen) == 1 else ""

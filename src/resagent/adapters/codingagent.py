@@ -196,9 +196,17 @@ class CodingAgentAdapter:
         self._ensure_import()
         from coding_agent import CodeTaskSpec, run_code_task
 
+        workspace_path = spec.get("workspace_path", "")
+        repo_url = spec.get("repo_url", "")
+        # Cloning (repo_url set) with no prior workspace: clone into a fresh
+        # subdir of the attempt dir so CodingAgent's "workspace must be empty"
+        # guard passes instead of falling back to the process cwd.
+        if repo_url and not workspace_path:
+            workspace_path = str(out_dir / "repo")
+
         task_spec = CodeTaskSpec(
-            workspace_path=Path(spec.get("workspace_path", "") or "."),
-            repo_url=spec.get("repo_url", ""),
+            workspace_path=Path(workspace_path),
+            repo_url=repo_url,
             branch=spec.get("branch", ""),
             env_policy=spec.get("env_policy", "auto"),
             env_name=spec.get("env_name", ""),
