@@ -4,7 +4,7 @@
 - **日期**: 2026-08-19
 - **用途**: 用「有 ground truth 的真实论文」端到端验证多模块科研系统（ResAgent + ExpAgent + ReproAgent + CodingAgent）的核心能力，覆盖「复现」和「原创代码」两个层级。
 - **复用方法**: 换 case 时只改对应 case 章节的 case 信息、基线与 goal 文本；框架与评分标准不变。
-- **状态**: L1（Mixup 复现）已通过；L2（SE block 原创代码）待跑。
+- **状态**: L1（Mixup 复现）已通过；L2（SE block 原创代码）已通过；L3（新论文复现）待跑。
 
 ---
 
@@ -42,7 +42,7 @@
 | **L2（中等）** | 给一个明确的改进方向，让系统实现并验证（写原创代码） | CodingAgent 的 Modify（原创代码） |
 | **L3（难）** | 完全开放式的改进任务 / 多步科学决策、失败归因、动态改方向 | 完整科学推理闭环 |
 
-**L1 已通过**（见 §13 结果记录），当前推进 L2；L3 待定。
+**L1、L2 已通过**（见 §13 结果记录），当前推进 L3（见 §14）。
 
 ---
 
@@ -224,4 +224,68 @@ ExpAgent 分析：SE 涨没涨、涨多少、是否显著
 1. CIFAR-10 从 cs.toronto.edu 下载极慢（~50KB/s）→ 本地下载 + scp 预置解决。
 2. ReproAgent 换 seed 反复重跑（seed-sweeping）→ 详见 `CAPABILITY_TEST_FINDINGS_MIXUP.md`；修复方案「去掉硬护栏 + 保留 metric-agnostic prompt 收敛规则」重测通过（ERM、mixup 各只跑一轮 seed=20170922 即收敛）。
 
-### L2：SE block 原创代码 —— 待跑
+### L2：SE block 原创代码 —— ✅ 通过（2026-08-19，详见 `CAPABILITY_TEST_FINDINGS_L2_SEBLOCK.md`）
+
+---
+
+## 14. L3 案例：新论文「从论文出发」复现（search_literature 能力验证）
+
+**定位**：L1/L2 的 goal 都是手写的方法细节（"复现 mixup"、"加 SE block"），`search_literature` 从未真正跑过。L3 的 goal **只给 arXiv ID 和待判定主张**，方法、仓库、配方、结论全部让系统自己搜出来，重点验证「论文 → 检索 → 提取方法 → 复现 → 分析」这条此前没测过的链路。
+
+### 14.1 背景与选型
+
+**硬约束**："最新" 与 "单卡可跑" 冲突。实测搜索发现，2026-08 的新论文几乎全是扩散 / 大模型 / 医学影像等重计算工作（3B/6B 模型、440M 图像语料、1.3B LLM），4090D 单卡几小时内无法验证。因此「最新」落到实操上是「2024–2025 里最新、且单卡可复现的方法类论文」。这个区间最优的是**优化器论文**——方法自包含、CIFAR 单卡几十分钟、主张是清晰数字对比。
+
+**主选：Schedule-Free Learning（无学习率调度优化器）**
+
+- 论文：*The Road Less Scheduled*，Defazio et al.
+- 会议：NeurIPS 2024；arXiv 2405.15682
+- 官方代码：https://github.com/facebookresearch/schedule_free
+- 核心主张：不用 LR schedule、无需事先知道训练步数 T、不加额外超参，就能追平/超过精心调过的 cosine 调度。
+- 为什么选它：①是 2025–2026「schedule-free」热门线的锚点（大量 follow-up），检索会找到真实演进文献而非背熟的旧论文；②CIFAR-10/100 有明确 ResNet 配方的数字，ground truth 干净；③官方代码成熟（MLCommons AlgoPerf 2024 自调优赛道冠军）；④实现约 40 行，顺带复用 L2 的 modify_code。
+
+**备选：AdEMAMix（ICLR 2025，更新）**
+
+- 论文：*The AdEMAMix Optimizer: Better, Faster, Older*，Pagliardini et al.，arXiv 2409.03137。
+- 核心主张：把单 EMA 换成两个 EMA 的混合（快 β1 + 慢 β3），让老梯度保持相关性，收敛更快更稳。
+- 取舍：比 Schedule-Free 更新，但头条结果是 1.3B LLM 级，图像分类 ground truth 相对偏薄。想"最最新"换它，想"ground truth 最干净"用 Schedule-Free。
+
+### 14.2 goal 原文（喂给系统）
+
+> 找到并复现 arXiv:2405.15682（*The Road Less Scheduled*）在 CIFAR-10 上的核心结果。请自行检索这篇论文，提取它的方法（Schedule-Free 优化器）与官方仓库，在 CIFAR-10 上跑一个标准 ResNet 基线，对比「带 cosine 学习率调度的普通 SGD/AdamW」与「Schedule-Free（无调度）」的测试精度，判断论文核心主张「去掉学习率调度、无需训练步数 T，仍能追平/超过精心调度的基线」是否成立。
+
+（关键点：goal **只给 arXiv ID 和主张**，不给仓库 URL、不给配方、不给超参——这些都要系统自己搜出来，这才测得到 search_literature。）
+
+### 14.3 预期链路
+
+```
+ExpAgent search_literature：检索 arXiv:2405.15682 → 拿到标题/摘要/方法/官方仓库
+ExpAgent 提取方法 → 规划 reproduce（克隆 schedule_free 跑 CIFAR）
+ReproAgent 复现「cosine 调度基线」+「Schedule-Free」两轮，同协议
+ExpAgent analyze：无调度 vs 有调度 → 是否追平/超过
+```
+
+（若官方仓库对 CIFAR 配方不友好，允许系统用 modify_code 从论文自己实现优化器接入现有 mixup-cifar10 基线——恰好复用 L2 的原创代码能力。）
+
+### 14.4 ground truth 基线（人工预跑，不进系统）
+
+复用 §5 流程：先用官方代码在本机跑出真值。
+
+| 配置 | 实测测试精度 | 备注 |
+|---|---|---|
+| SGD/AdamW + cosine 调度（基线） | ____ | 同 seed、同 epoch |
+| Schedule-Free（无调度） | ____ | 同 seed、同 epoch |
+
+论文参考值：CIFAR-10 上 Schedule-Free ≈ 或略高于 cosine 基线（方向：持平/略高，不显著掉）。
+
+### 14.5 评分标准
+
+三条**全部通过**才算过：
+
+| # | 指标 | 判据 |
+|---|---|---|
+| 1 | 检索 | 系统正确找到 arXiv:2405.15682 的标题/方法/官方仓库（schedule_free），没找错论文 |
+| 2 | 复现 | Schedule-Free 实测精度落在基线 ± 0.5% 内，且 ≥ cosine 基线 − 0.5%（允许持平，不允许显著掉） |
+| 3 | 结论 | ExpAgent conclusion = supported，理由引用对比数字 + 正确解释「无调度也能追平」 |
+
+诊断/归档/复现性复用 §8/§9/§11。
