@@ -84,7 +84,8 @@ class ActionName(str, Enum):
 class Budget(BaseModel):
     """Runtime resource budget for the current research run."""
     max_tasks: int = Field(default=20, description="Hard cap on total tasks")
-    max_task_retries: int = Field(default=2, description="Max retries per task")
+    max_task_retries: int = Field(default=2, description="Max transient retries per task")
+    max_code_repairs: int = Field(default=5, description="Max code-repair tasks spawned per operator task")
     max_api_calls: int = Field(default=200, description="Max total LLM calls")
     api_calls_used: int = Field(default=0)
     tasks_run: int = Field(default=0)

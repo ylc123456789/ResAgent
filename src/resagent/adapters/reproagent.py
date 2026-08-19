@@ -157,7 +157,7 @@ class ReproAgentAdapter:
             model=self.model,
             api_base=self.api_base,
             api_key_env=self.api_key_env,
-            timeout_seconds=spec.get("timeout") or 1800,
+            timeout_seconds=spec.get("timeout") or 3600,
             mock_llm=False,
             enable_coding_agent=bool(spec.get("codingagent_path")),
             codingagent_path=Path(spec["codingagent_path"]) if spec.get("codingagent_path") else None,

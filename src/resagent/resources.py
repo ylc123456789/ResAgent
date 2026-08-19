@@ -438,7 +438,7 @@ def schedule_coding_repair(
         task.source == repro_task.id and task.agent == Producer.CodingAgent
         for task in state.tasks
     )
-    if repair_count >= state.budget.max_task_retries:
+    if repair_count >= state.budget.max_code_repairs:
         return None
     issues = [str(issue).strip() for issue in coding_issues if str(issue).strip()]
     if not issues:

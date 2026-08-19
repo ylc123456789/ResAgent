@@ -505,7 +505,7 @@ def test_blocked_operator_without_repair_context_remains_error(tmp_path):
 
 def test_operator_repair_routing_is_bounded(tmp_path):
     state = init_state("bounded", str(tmp_path), "run")
-    state.budget.max_task_retries = 1
+    state.budget.max_code_repairs = 1
     state.resources.extend([
         ResourceRef(kind="repo", id="project", path=str(tmp_path / "repo"),
                     created_by=Producer.ReproAgent, created_task="setup"),
