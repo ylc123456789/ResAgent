@@ -4,7 +4,7 @@
 - **日期**: 2026-08-19
 - **用途**: 用「有 ground truth 的真实论文」端到端验证多模块科研系统（ResAgent + ExpAgent + ReproAgent + CodingAgent）的核心能力，覆盖「复现」和「原创代码」两个层级。
 - **复用方法**: 换 case 时只改对应 case 章节的 case 信息、基线与 goal 文本；框架与评分标准不变。
-- **状态**: L1（Mixup 复现）已通过；L2（SE block 原创代码）已通过；L3（新论文复现）待跑。
+- **状态**: L1（Mixup 复现）已通过；L2（SE block 原创代码）已通过；L3（开放方向 T1）待跑。
 
 ---
 
@@ -228,64 +228,65 @@ ExpAgent 分析：SE 涨没涨、涨多少、是否显著
 
 ---
 
-## 14. L3 案例：新论文「从论文出发」复现（search_literature 能力验证）
+## 14. L3 案例：开放方向（T1，给方向不给论文）—— search_literature + 自主设计验证
 
-**定位**：L1/L2 的 goal 都是手写的方法细节（"复现 mixup"、"加 SE block"），`search_literature` 从未真正跑过。L3 的 goal **只给 arXiv ID 和待判定主张**，方法、仓库、配方、结论全部让系统自己搜出来，重点验证「论文 → 检索 → 提取方法 → 复现 → 分析」这条此前没测过的链路。
+**定位**：L1/L2 都是"手写方法"的闭 case（喂了方法/论文）。L3 改成 **T1「假开放」**：goal **只给一个研究方向**，不给论文、不给方法、不给配方。系统必须自己走完「检索 → 选方法 → 设计实验 → 执行 → 分析出结论」。该方向在文献里有**已知答案**（隐藏 ground truth，只给测试者、不进 goal），用来判"结论对不对"；再配一张**过程 rubric** 判"做得好不好"（不依赖科学 ground truth，将来换成真·新 idea 也能复用）。
 
-### 14.1 背景与选型
+### 14.1 方向与隐藏答案（测试者内部，不进 goal）
 
-**硬约束**："最新" 与 "单卡可跑" 冲突。实测搜索发现，2026-08 的新论文几乎全是扩散 / 大模型 / 医学影像等重计算工作（3B/6B 模型、440M 图像语料、1.3B LLM），4090D 单卡几小时内无法验证。因此「最新」落到实操上是「2024–2025 里最新、且单卡可复现的方法类论文」。这个区间最优的是**优化器论文**——方法自包含、CIFAR 单卡几十分钟、主张是清晰数字对比。
+**给系统的方向（唯一输入）**：学习率调度（learning rate schedule）。
 
-**主选：Schedule-Free Learning（无学习率调度优化器）**
+**隐藏 ground truth（测试者已知，系统不知）**：
 
-- 论文：*The Road Less Scheduled*，Defazio et al.
-- 会议：NeurIPS 2024；arXiv 2405.15682
-- 官方代码：https://github.com/facebookresearch/schedule_free
-- 核心主张：不用 LR schedule、无需事先知道训练步数 T、不加额外超参，就能追平/超过精心调过的 cosine 调度。
-- 为什么选它：①是 2025–2026「schedule-free」热门线的锚点（大量 follow-up），检索会找到真实演进文献而非背熟的旧论文；②CIFAR-10/100 有明确 ResNet 配方的数字，ground truth 干净；③官方代码成熟（MLCommons AlgoPerf 2024 自调优赛道冠军）；④实现约 40 行，顺带复用 L2 的 modify_code。
+1. 经典结果：cosine annealing（Loshchilov & Hutter, ICLR 2017）显著优于常数 LR——即"调度确实重要"。
+2. 进阶结果：schedule-free 线（Defazio et al., NeurIPS 2024, arXiv 2405.15682）用「无调度 + 迭代平均」在**无需知道训练步数 T、不加额外超参**的前提下追平/超过 cosine。
 
-**备选：AdEMAMix（ICLR 2025，更新）**
+系统只要落在"调度重要 + 找到了（或诚实评估了）一个更简单方案"这个已知区间，且数字对得上预跑，就算结论过关。选它的理由：①答案在文献里已知且可验证；②"更简单调度"是 2024–2026 真实热门线（schedule-free 有大量 follow-up），检索有区分度，不是背熟的旧论文；③CIFAR 尺度、单卡 24GB、几十分钟一轮，计算可控。
 
-- 论文：*The AdEMAMix Optimizer: Better, Faster, Older*，Pagliardini et al.，arXiv 2409.03137。
-- 核心主张：把单 EMA 换成两个 EMA 的混合（快 β1 + 慢 β3），让老梯度保持相关性，收敛更快更稳。
-- 取舍：比 Schedule-Free 更新，但头条结果是 1.3B LLM 级，图像分类 ground truth 相对偏薄。想"最最新"换它，想"ground truth 最干净"用 Schedule-Free。
+### 14.2 goal 原文（喂给系统，原样）
 
-### 14.2 goal 原文（喂给系统）
+> 在不改变模型架构的前提下，调查 CIFAR-100 上小模型（如 ResNet-18）训练中「学习率调度策略」对最终精度的影响。请自行检索相关文献，选定至少两种调度方案（其中一种为常用的 cosine annealing 基线），设计并运行一组**控制变量**的对比实验（除调度外其余保持一致），并尝试提出/寻找一种**比 cosine 更简单**的调度方案，验证它能否追平或超过 cosine 基线。最后给出结论：学习率调度到底重不重要，以及是否存在更简单的替代。
 
-> 找到并复现 arXiv:2405.15682（*The Road Less Scheduled*）在 CIFAR-10 上的核心结果。请自行检索这篇论文，提取它的方法（Schedule-Free 优化器）与官方仓库，在 CIFAR-10 上跑一个标准 ResNet 基线，对比「带 cosine 学习率调度的普通 SGD/AdamW」与「Schedule-Free（无调度）」的测试精度，判断论文核心主张「去掉学习率调度、无需训练步数 T，仍能追平/超过精心调度的基线」是否成立。
-
-（关键点：goal **只给 arXiv ID 和主张**，不给仓库 URL、不给配方、不给超参——这些都要系统自己搜出来，这才测得到 search_literature。）
+（关键点：goal **只给方向与约束**，不给任何具体论文、方法名、仓库 URL、超参配方——这些都要系统自己搜出来。）
 
 ### 14.3 预期链路
 
 ```
-ExpAgent search_literature：检索 arXiv:2405.15682 → 拿到标题/摘要/方法/官方仓库
-ExpAgent 提取方法 → 规划 reproduce（克隆 schedule_free 跑 CIFAR）
-ReproAgent 复现「cosine 调度基线」+「Schedule-Free」两轮，同协议
-ExpAgent analyze：无调度 vs 有调度 → 是否追平/超过
+ExpAgent search_literature：检索"LR schedule / cosine annealing / schedule-free" → 找到真实相关论文
+ExpAgent 选定候选方案 → 规划 reproduce/execute（cosine 基线 + 候选调度，A/B 控制变量）
+ReproAgent 执行对比实验（同 seed、同 epoch、同数据，只改调度）
+ExpAgent analyze：候选 vs cosine → 调度是否重要 + 是否有更简单替代
 ```
-
-（若官方仓库对 CIFAR 配方不友好，允许系统用 modify_code 从论文自己实现优化器接入现有 mixup-cifar10 基线——恰好复用 L2 的原创代码能力。）
 
 ### 14.4 ground truth 基线（人工预跑，不进系统）
 
-复用 §5 流程：先用官方代码在本机跑出真值。
+复用 §5 流程：用现有 mixup-cifar10 基线（或最小改动脚本）在本机跑出真值。
 
 | 配置 | 实测测试精度 | 备注 |
 |---|---|---|
-| SGD/AdamW + cosine 调度（基线） | ____ | 同 seed、同 epoch |
-| Schedule-Free（无调度） | ____ | 同 seed、同 epoch |
+| ResNet-18 + cosine 调度（基线） | ____ | 同 seed、同 epoch |
+| ResNet-18 + 常数 LR（参照，预期低于 cosine） | ____ | 同 seed、同 epoch |
+| （可选）schedule-free 实现 | ____ | 若官方 schedule_free 库适配 |
 
-论文参考值：CIFAR-10 上 Schedule-Free ≈ 或略高于 cosine 基线（方向：持平/略高，不显著掉）。
+参考预期：cosine > 常数 LR（约 0.5–1.5pp）；schedule-free ≈ 或略高于 cosine。
 
-### 14.5 评分标准
+### 14.5 评分标准（两轴：过程 rubric + 结论 ground truth）
 
-三条**全部通过**才算过：
+**A. 过程 rubric（满分 10，不依赖科学 ground truth，任何方向可复用）**
 
-| # | 指标 | 判据 |
-|---|---|---|
-| 1 | 检索 | 系统正确找到 arXiv:2405.15682 的标题/方法/官方仓库（schedule_free），没找错论文 |
-| 2 | 复现 | Schedule-Free 实测精度落在基线 ± 0.5% 内，且 ≥ cosine 基线 − 0.5%（允许持平，不允许显著掉） |
-| 3 | 结论 | ExpAgent conclusion = supported，理由引用对比数字 + 正确解释「无调度也能追平」 |
+| 维度 | 2 分 | 1 分 | 0 分 |
+|---|---|---|---|
+| 检索 | 找到 ≥2 篇真实、相关论文并正确引用（标题/作者/arXiv 可核对） | 找到相关论文但引用有误，或只 1 篇 | 没搜索，或引用虚构论文 |
+| 设计 | 有对照：同 seed/epoch/数据，只改调度一个变量 | 有对照但变量未隔离（顺带改了别的） | 无对照，无法判因果 |
+| 执行 | 实际跑的就是设计的，数字能对回日志/state.json | 基本一致但有小偏差（epoch/seed 变了未说明） | 跑的和设计不符，数字无来源 |
+| 结论 | 严格从数据推出，诚实报告效应量与方差，不夸大 | 方向对但过度泛化/忽略方差 | 结论与数据矛盾或编造 |
+| 收敛 | 预算内收口，不反复追加实验 | 轻微反复（多跑一轮才收） | 陷入 L1/L2 那种无限追加 |
 
-诊断/归档/复现性复用 §8/§9/§11。
+**B. 结论 ground truth（T1 特有，判"对不对"）**
+
+| # | 判据 |
+|---|---|
+| 1 | 系统落地/评估的方案是真实有效的方法（非幻觉），且属于"更简单调度"的合理候选 |
+| 2 | 系统报的精度数字落在人工预跑基线 ± 0.5%，对"是否追平/超过 cosine"的判断与预跑一致 |
+
+**通过标准**：A ≥ 8 分 且 B 两条全过。（诊断/归档/复现性复用 §8/§9/§11。）
