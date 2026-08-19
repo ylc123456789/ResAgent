@@ -186,7 +186,11 @@ def infer_workspace_path(
     goal = state.run.research_goal if state else ""
     # Strip URLs so only local filesystem paths are considered as workspaces.
     goal_no_urls = re.sub(r"https?://[^\s<>()\[\]{}]+", " ", goal)
-    for pattern in [r"(/[^\s,;]+)", r"([A-Za-z]:\\[^\s,;]+)"]:
+    # The (?<!\S) lookbehind requires the path to begin at a token boundary
+    # (start of text or after whitespace), so a mid-token slash — as in a
+    # relative path like "models/resnet.py" — is not mistaken for an absolute
+    # path whose parent would wrongly resolve to "/".
+    for pattern in [r"(?<!\S)(/[^\s,;]+)", r"(?<!\S)([A-Za-z]:\\[^\s,;]+)"]:
         match = re.search(pattern, goal_no_urls)
         if match:
             path = match.group(1).rstrip(".")

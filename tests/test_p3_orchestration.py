@@ -209,6 +209,25 @@ def test_ambiguous_goal_yields_empty_workspace(tmp_path):
     assert tasks[0].input["workspace_path"] == ""
 
 
+def test_relative_path_in_goal_is_not_absolute_workspace(tmp_path):
+    """A relative path like "models/resnet.py" in the goal must not resolve
+    the workspace to "/" (a mid-token slash was mistaken for an absolute path)."""
+    state = init_state(
+        "se-block", str(tmp_path),
+        "在 models/resnet.py 里实现 SE block",
+    )
+    tasks, issues = actions_to_tasks([
+        {
+            "action_id": "modify", "capability": "modify_code",
+            "objective": "add SE block", "rationale": "", "depends_on": [],
+            "project_ref": "project", "required": True,
+            "constraints": [], "verify_commands": [], "expected_artifacts": [],
+        },
+    ], state, "decision", 1, registry=make_registry())
+    assert issues == []
+    assert tasks[0].input["workspace_path"] == ""
+
+
 def test_reproduce_patch_experiment_chain_reuses_registered_resources(tmp_path):
     state = init_state("e2e", str(tmp_path), "reproduce, patch and run")
     tasks, issues = actions_to_tasks([
