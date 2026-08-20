@@ -12,6 +12,23 @@ from ..context import build_codingagent_context
 from ..persistence.workspace import WorkspaceLayout
 
 
+def _resolve_workspace(spec: dict, out_dir: Path) -> str:
+    """Return the coding workspace path, creating a fresh empty dir when
+    neither workspace_path nor repo_url supplies one.
+
+    CodingAgent's _prepare_workspace only materializes a clone when repo_url
+    is set; for a create-from-scratch task it does nothing, so a Path("") here
+    would make its operations fall back to the process cwd (e.g. the ResAgent
+    repo). A dedicated empty dir keeps the task sandboxed.
+    """
+    workspace_path = spec.get("workspace_path", "")
+    if not workspace_path:
+        ws = out_dir / "repo"
+        ws.mkdir(parents=True, exist_ok=True)
+        workspace_path = str(ws)
+    return workspace_path
+
+
 class CodingAgentAdapter:
     """Calls CodingAgent for well-defined code tasks."""
 
@@ -196,13 +213,8 @@ class CodingAgentAdapter:
         self._ensure_import()
         from coding_agent import CodeTaskSpec, run_code_task
 
-        workspace_path = spec.get("workspace_path", "")
+        workspace_path = _resolve_workspace(spec, out_dir)
         repo_url = spec.get("repo_url", "")
-        # Cloning (repo_url set) with no prior workspace: clone into a fresh
-        # subdir of the attempt dir so CodingAgent's "workspace must be empty"
-        # guard passes instead of falling back to the process cwd.
-        if repo_url and not workspace_path:
-            workspace_path = str(out_dir / "repo")
 
         task_spec = CodeTaskSpec(
             workspace_path=Path(workspace_path),

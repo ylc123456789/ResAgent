@@ -357,3 +357,18 @@ def test_step_surfaces_directive_as_replan_task(tmp_path):
     assert len(replan) == 1
     assert replan[0].agent == Producer.ExpAgent
     assert all(d.handled for d in state.user_directives)
+
+
+def test_codingagent_resolve_workspace_creates_fresh_dir_when_empty(tmp_path):
+    """Empty workspace_path must yield a fresh sandbox dir, not Path(""),
+    else CodingAgent falls back to the process cwd (e.g. the ResAgent repo)."""
+    from resagent.adapters.codingagent import _resolve_workspace
+
+    out_dir = tmp_path / "attempt_001"
+    out_dir.mkdir(parents=True)
+
+    ws = _resolve_workspace({"workspace_path": ""}, out_dir)
+
+    assert ws == str(out_dir / "repo")
+    assert Path(ws).is_dir()
+    assert _resolve_workspace({"workspace_path": "/explicit/path"}, out_dir) == "/explicit/path"
