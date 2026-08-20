@@ -15,7 +15,7 @@ from resagent.config import Config
 from resagent.context import build_controller_context
 from resagent.conversation import new_conversation
 from resagent.orchestrator import build_controller, init_run
-from resagent.persistence.state import load_state
+from resagent.persistence.state import load_state, save_state
 
 
 def _configure_module_cards(cfg):
@@ -194,6 +194,32 @@ def test_advance_run_injects_directive(stack):
     ctx = build_controller_context(state)
     assert "User Directives" in ctx
     assert "换个 baseline" in ctx
+
+
+def test_advance_run_records_pending_question_answer_once(stack):
+    from resagent.models import DirectiveKind, PendingQuestion, RunStatus
+
+    cfg, _, tools, conv = stack
+    state = init_run(goal="Goal", workspace_root=conv.workspace_root, config=cfg)
+    run_id = state.run.run_id
+    state.run.status = RunStatus.paused
+    state.pending_question = PendingQuestion(
+        question_id="q_001", text="Proceed with the current plan?",
+    )
+    save_state(state)
+
+    out = tools.execute(conv, "advance_run", {
+        "run_id": run_id,
+        "instruction": "yes, proceed",
+        "max_steps": 1,
+    })
+
+    assert out.ok, out.text
+    state = load_state(conv.workspace_root, run_id)
+    matching = [d for d in state.user_directives if d.text == "yes, proceed"]
+    assert len(matching) == 1
+    assert matching[0].kind == DirectiveKind.confirmation
+    assert matching[0].handled is True
 
 
 def test_advance_run_missing_run(stack):

@@ -163,6 +163,39 @@ def test_expagent_deduplicates_equivalent_recommendations(tmp_path):
     assert second == []
 
 
+def test_expagent_adapter_applies_only_explicit_supersedes(tmp_path):
+    state = init_state("explicit-replace", str(tmp_path), "goal")
+    old = AgentTask(
+        id="task_001", source="decision_1", action_id="old_run",
+        agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+        priority=TaskPriority.medium, input={},
+    )
+    keep = AgentTask(
+        id="task_002", source="decision_1", action_id="keep_run",
+        agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+        priority=TaskPriority.medium, input={},
+    )
+    state.tasks.extend([old, keep])
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
+    adapter._state = state
+
+    new_tasks = adapter._actions_to_tasks(
+        [{
+            "action_id": "new_run", "capability": "execute_experiment",
+            "objective": "run revised experiment", "rationale": "revised plan",
+            "depends_on": [], "project_ref": "project", "required": True,
+            "expected_metrics": ["accuracy"], "requires_gpu": False,
+        }],
+        "decision_2",
+        3,
+        supersedes_action_ids=["old_run"],
+    )
+
+    assert len(new_tasks) == 1
+    assert old.status == TaskStatus.skipped
+    assert keep.status == TaskStatus.pending
+
+
 def test_followup_experiment_inherits_workspace_from_prior_repro(tmp_path):
     state = init_state("followup", str(tmp_path), "goal")
     first = AgentTask(

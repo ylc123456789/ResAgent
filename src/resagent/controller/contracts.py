@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..models import (
-    ActionName, AgentKind, AgentTask, DecisionRecord, Producer,
+    ActionName, AgentKind, AgentTask, DecisionRecord, DirectiveKind, Producer,
     ResearchState, RunStatus, TaskPriority, TaskStatus,
 )
 from ..capabilities import CapabilityError
@@ -223,13 +223,15 @@ def ensure_analysis_coverage(
 def ensure_directive_replan(state: ResearchState) -> AgentTask | None:
     """Create one ExpAgent re-plan task for unhandled user directives.
 
-    A user directive (e.g. "改成单 seed", "直接 finish") must actually change
-    the plan. The controller has no direct "modify task" action, so the way to
-    comply is to hand the directive to ExpAgent as a fresh advisory task and let
-    it revise the action graph. This is an orchestration invariant fix, not an
-    LLM suggestion, and mirrors ensure_analysis_coverage.
+    A plan-revision directive (e.g. "改成单 seed") must actually change the
+    plan. The controller has no direct "modify task" action, so it hands the
+    directive to ExpAgent as a fresh advisory task. Information, confirmation,
+    and control directives are deliberately excluded.
     """
-    unhandled = [d for d in state.user_directives if not d.handled]
+    unhandled = [
+        d for d in state.user_directives
+        if not d.handled and d.kind == DirectiveKind.plan_revision
+    ]
     if not unhandled:
         return None
 
@@ -271,6 +273,38 @@ def ensure_directive_replan(state: ResearchState) -> AgentTask | None:
         evidence=[d.text for d in unhandled],
     ))
     return task
+
+
+def apply_finish_control(state: ResearchState):
+    """Apply one pending user finish request without scientific re-planning.
+
+    Unstarted work is skipped, except required result analysis. The directive
+    remains unhandled until validate_finish succeeds, so the controller will
+    deterministically finish after any necessary analysis.
+    """
+    directive = next(
+        (
+            item for item in state.user_directives
+            if not item.handled
+            and item.kind == DirectiveKind.control
+            and item.command == "finish"
+        ),
+        None,
+    )
+    if directive is None:
+        return None
+
+    for task in state.tasks:
+        if task.status not in {
+            TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked,
+        }:
+            continue
+        if task.required and task.capability == "analyze_results":
+            continue
+        task.status = TaskStatus.skipped
+        task.error = "Skipped by explicit user finish request."
+        task.input["superseded_by"] = "user_control:finish"
+    return directive
 
 
 def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:

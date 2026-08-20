@@ -67,6 +67,14 @@ class AgentKind(str, Enum):
     classify_failure = "classify_failure"
 
 
+class DirectiveKind(str, Enum):
+    """How an explicit user instruction affects orchestration."""
+    information = "information"
+    confirmation = "confirmation"
+    plan_revision = "plan_revision"
+    control = "control"
+
+
 # ── Action space for the agentic loop ─────────────────────────────────────────
 
 class ActionName(str, Enum):
@@ -203,9 +211,11 @@ class UserDirective(BaseModel):
     the most recent ones every step. See docs/reference/CONVERSATION_LAYER_DESIGN.md §4.7.
     """
     text: str
+    kind: DirectiveKind = DirectiveKind.information
+    command: str = ""
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source_conversation: str = ""
-    handled: bool = False  # True once a re-plan task has been created for it
+    handled: bool = False  # True once its orchestration effect has been applied
 
 
 class PendingQuestion(BaseModel):

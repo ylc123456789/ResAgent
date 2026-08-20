@@ -21,6 +21,7 @@ from .dependency_graph import dependency_graph_issues
 def actions_to_tasks(
     actions: list[dict], state, source: str, next_num: int, registry,
     analysis_required: bool | None = None,
+    supersedes_action_ids: list[str] | None = None,
 ) -> tuple[list[AgentTask], list[str]]:
     """Convert one validated ExpAgent V2 action graph into ResAgent tasks."""
     issues = dependency_graph_issues(actions)
@@ -113,29 +114,55 @@ def actions_to_tasks(
             action_tasks[name].id for name in dependency_names
             if name in action_tasks
         ]
-    _retire_superseded(state, tasks)
-    return tasks, []
+    _, replacement_issues = retire_superseded_actions(
+        state,
+        supersedes_action_ids or [],
+        replacement_source=source,
+        new_action_ids={task.action_id for task in tasks if task.action_id},
+    )
+    issues.extend(replacement_issues)
+    return tasks, issues
 
 
-def _retire_superseded(state, new_tasks: list[AgentTask]) -> None:
-    """Mark old pending tasks the new plan no longer includes as skipped.
+def retire_superseded_actions(
+    state,
+    action_ids: list[str],
+    *,
+    replacement_source: str,
+    new_action_ids: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Retire only explicitly named, uniquely matched pending actions.
 
-    Mirrors the code-repair supersede path (controller/actions.py marks a
-    failed task skipped when a repair task supersedes it): a re-plan that omits
-    a previous decision's pending tasks must retire them, otherwise they stay
-    required+pending and block finish (validate_finish requires every required
-    task to be resolved).
+    Decisions are append-only by default. Absence from a new action graph never
+    implies cancellation. Ambiguous or unknown ids are reported and left alone
+    so task lifecycle changes are never guessed.
     """
-    new_fingerprints = {task.fingerprint for task in new_tasks if task.fingerprint}
-    project_refs = {task.project_ref for task in new_tasks if task.project_ref}
-    for task in state.tasks:
-        if task.status != TaskStatus.pending:
+    requested = list(dict.fromkeys(value.strip() for value in action_ids if value.strip()))
+    if not requested:
+        return [], []
+
+    new_ids = new_action_ids or set()
+    retired: list[str] = []
+    issues: list[str] = []
+    for action_id in requested:
+        if action_id in new_ids:
+            issues.append(
+                f"superseded action_id '{action_id}' is also present in the new graph"
+            )
             continue
-        if task.fingerprint in new_fingerprints:
-            continue  # still in the plan (re-affirmed)
-        if project_refs and task.project_ref not in project_refs:
-            continue  # a different project — leave it alone
+        matching = [
+            task for task in state.tasks
+            if task.action_id == action_id and task.status == TaskStatus.pending
+        ]
+        if len(matching) != 1:
+            reason = "unknown" if not matching else "ambiguous"
+            issues.append(f"{reason} superseded action_id '{action_id}'")
+            continue
+        task = matching[0]
         task.status = TaskStatus.skipped
+        task.input["superseded_by"] = replacement_source
+        retired.append(task.id)
+    return retired, issues
 
 
 def _task_input(action: dict, workspace_path: str) -> dict:

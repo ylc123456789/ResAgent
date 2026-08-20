@@ -27,9 +27,10 @@ from .models import (
 )
 from ..config import Config
 from .history import conversation_dir
-from ..models import UserDirective
 from ..orchestrator import init_run, resume_run, status as run_status
-from ..persistence.state import save_state, submit_user_response
+from ..persistence.state import (
+    append_user_directive, save_state, submit_user_response,
+)
 from .session_tools import SessionToolsMixin
 
 
@@ -346,11 +347,10 @@ class ChatTools(SessionToolsMixin):
 
         if state.pending_question is not None:
             submit_user_response(state, state.pending_question.question_id, instruction)
-
-        state.user_directives.append(UserDirective(
-            text=instruction,
-            source_conversation=conv.conversation_id,
-        ))
+        else:
+            append_user_directive(
+                state, instruction, source=conv.conversation_id,
+            )
         save_state(state)
 
         max_steps = self._cap_steps(params.get("max_steps"))

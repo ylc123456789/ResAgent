@@ -103,6 +103,7 @@ class ExpAgentAdapter:
             source=artifact.id,
             next_num=state.next_task_number(),
             analysis_required=decision_analysis_required,
+            supersedes_action_ids=raw.get("supersedes_action_ids", []),
         )
         if self._normalization_issues:
             raw["_normalization_issues"] = self._normalization_issues
@@ -246,7 +247,10 @@ class ExpAgentAdapter:
         if state.current_summary:
             parts.append(f"Current Summary: {state.current_summary}")
         if task is not None:
-            parts.append(f"Assigned Scientific Task: {_task_goal(task)}")
+            parts.append(
+                f"Assigned Scientific Task: capability={task.capability or task.kind.value}; "
+                f"action_id={task.action_id or '-'}; goal={_task_goal(task)}"
+            )
             if task.input.get("input_artifacts"):
                 parts.append(
                     "Use the attached dependency artifacts as the authoritative "
@@ -267,6 +271,7 @@ class ExpAgentAdapter:
                 desc = t.input.get("description", "") or t.input.get("task_goal", "")
                 task_lines.append(
                     f"  [{t.status.value}] {t.id} ({t.agent.value}/{t.kind.value})"
+                    f" action_id={t.action_id or '-'} source={t.source or '-'}"
                     f"{': ' + desc[:120] if desc else ''}"
                 )
             parts.append("\n".join(task_lines))
@@ -343,11 +348,13 @@ class ExpAgentAdapter:
     def _actions_to_tasks(
         self, actions: list[dict], source: str, next_num: int,
         analysis_required: bool | None = None,
+        supersedes_action_ids: list[str] | None = None,
     ) -> list[AgentTask]:
         """Convert one validated ExpAgent action graph into ResAgent tasks."""
         tasks, self._normalization_issues = actions_to_tasks(
             actions, self._state, source, next_num, registry=self.registry,
             analysis_required=analysis_required,
+            supersedes_action_ids=supersedes_action_ids,
         )
         return tasks
 

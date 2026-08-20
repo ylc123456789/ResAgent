@@ -4,11 +4,36 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..models import ResearchState, ResearchRun, RunStatus, TaskStatus, UserDirective
+from ..models import (
+    DirectiveKind, ResearchState, ResearchRun, RunStatus, TaskStatus,
+    UserDirective,
+)
+
+
+_CONFIRMATIONS = {
+    "accepted", "approve", "approved", "continue", "go ahead", "ok", "okay",
+    "proceed", "yes", "y", "可以", "同意", "好", "好的", "确认", "继续",
+}
+_CONFIRMATION_PHRASE = re.compile(
+    r"^(?:yes|y|ok(?:ay)?|approve(?:d)?|accepted|continue|proceed|go ahead)"
+    r"(?:[\s,]+(?:please|now|continue|proceed|go ahead))*$",
+    re.IGNORECASE,
+)
+_FINISH_CONTROL = re.compile(
+    r"\b(finish|finalize|wrap\s*up|stop)\b|"
+    r"收尾|结束|停止|不要再?(?:继续|运行|跑)|不再(?:继续|运行|跑)",
+    re.IGNORECASE,
+)
+_PLAN_REVISION = re.compile(
+    r"\b(change|revise|replace|instead|only\s+run|single\s+seed)\b|"
+    r"改成|改为|修改|调整|替换|换成|只跑|单\s*seed|增加|减少|重新规划|跳过",
+    re.IGNORECASE,
+)
 
 
 def workspace_path(workspace_dir: str, run_id: str) -> Path:
@@ -66,7 +91,53 @@ def _serialize(state: ResearchState) -> dict:
 
 
 def _deserialize(payload: dict) -> ResearchState:
+    # States written before directive typing stored only free-form text. Migrate
+    # those records through the same conservative classifier used for new input.
+    for item in payload.get("user_directives", []):
+        if "kind" in item:
+            continue
+        kind, command = classify_user_directive(str(item.get("text", "")))
+        item["kind"] = kind.value
+        item["command"] = command
+        if kind in {DirectiveKind.information, DirectiveKind.confirmation}:
+            item["handled"] = True
     return ResearchState.model_validate(payload)
+
+
+def classify_user_directive(text: str) -> tuple[DirectiveKind, str]:
+    """Classify only high-confidence orchestration effects.
+
+    Unknown text is information, not an implicit plan revision. Explicit
+    revision vocabulary still reaches ExpAgent, while finish/stop is handled
+    deterministically by ResAgent.
+    """
+    normalized = " ".join(text.strip().lower().split()).strip("。.!！?？")
+    if normalized in _CONFIRMATIONS or _CONFIRMATION_PHRASE.fullmatch(normalized):
+        return DirectiveKind.confirmation, ""
+    if _PLAN_REVISION.search(normalized):
+        return DirectiveKind.plan_revision, ""
+    if _FINISH_CONTROL.search(normalized):
+        return DirectiveKind.control, "finish"
+    return DirectiveKind.information, ""
+
+
+def append_user_directive(
+    state: ResearchState,
+    text: str,
+    *,
+    source: str = "",
+) -> UserDirective:
+    """Append one classified, auditable user directive."""
+    kind, command = classify_user_directive(text)
+    directive = UserDirective(
+        text=text.strip(),
+        kind=kind,
+        command=command,
+        source_conversation=source,
+        handled=kind in {DirectiveKind.information, DirectiveKind.confirmation},
+    )
+    state.user_directives.append(directive)
+    return directive
 
 
 def submit_user_response(state: ResearchState, question_id: str, response: str) -> None:
@@ -86,12 +157,8 @@ def submit_user_response(state: ResearchState, question_id: str, response: str) 
             task.error = ""
     state.answered_questions.append(question)
     state.pending_question = None
-    # Surface the answer as a User Directive so the controller actually sees and
-    # obeys it (the controller prompt already says directives take priority).
-    # Without this, answers only land in answered_questions — a dead end the
-    # controller loop never reads — so "stop / finish" is silently ignored.
-    state.user_directives.append(UserDirective(
-        text=answer,
-        source_conversation=f"answer:{question_id}",
-    ))
+    # Keep every answer visible to the controller, but preserve its effect:
+    # information/confirmation is context, plan_revision invokes ExpAgent, and
+    # finish/stop is a deterministic ResAgent control.
+    append_user_directive(state, answer, source=f"answer:{question_id}")
     state.run.status = RunStatus.running

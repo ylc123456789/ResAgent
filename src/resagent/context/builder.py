@@ -57,7 +57,10 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
     if state.user_directives:
         lines = ["\n## User Directives (latest last)"]
         for d in state.user_directives[-3:]:
-            lines.append(f"- [{d.ts:%Y-%m-%d %H:%M}] {d.text}")
+            lines.append(
+                f"- [{d.ts:%Y-%m-%d %H:%M}] kind={d.kind.value} "
+                f"handled={d.handled}: {d.text}"
+            )
         parts.append("\n".join(lines))
 
     # Tasks

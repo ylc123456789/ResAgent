@@ -13,7 +13,10 @@ from ..adapters.expagent import ExpAgentAdapter
 from ..adapters.codingagent import CodingAgentAdapter
 from ..adapters.reproagent import ReproAgentAdapter
 from ..persistence.state import save_state
-from .contracts import TERMINAL_RUN_STATUSES, ensure_directive_replan
+from .contracts import (
+    TERMINAL_RUN_STATUSES, apply_finish_control, ensure_directive_replan,
+    validate_finish,
+)
 
 
 class Controller(ControllerActions):
@@ -59,8 +62,33 @@ class Controller(ControllerActions):
             state.run.status = RunStatus.paused
             return observation
 
-        # Surface any new user directive as a re-plan task before choosing the
-        # next action, so the planner has a lever to actually change the plan.
+        # Explicit finish/stop is a ResAgent control, not a scientific re-plan.
+        # It remains pending until any required result analysis is complete.
+        finish_directive = apply_finish_control(state)
+        if finish_directive is not None and validate_finish(state).allowed:
+            planned = PlannedAction(
+                ActionName.finish,
+                {"summary": "Run finished by explicit user request."},
+                reason="The user explicitly requested finish.",
+            )
+            state.decisions.append(DecisionRecord(
+                id=f"decision_{state.next_decision_number():03d}",
+                made_by="ResAgent",
+                reason=planned.reason,
+                selected_action=planned.action.value,
+                evidence=[finish_directive.text],
+            ))
+            observation = self._execute(state, planned)
+            state.observations.append(observation)
+            state.budget.api_calls_used += 1
+            if observation.result == "ok":
+                finish_directive.handled = True
+                state.run.status = RunStatus.completed
+                state.current_summary = observation.detail
+            return observation
+
+        # Only plan revisions need ExpAgent. Information and confirmation are
+        # already present in context; controls are handled above.
         ensure_directive_replan(state)
 
         try:

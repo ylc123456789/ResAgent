@@ -145,7 +145,7 @@ def test_transient_repro_failure_returns_task_to_pending_queue(tmp_path):
 
 
 def test_submit_user_response_clears_question_and_resumes(tmp_path):
-    from resagent.models import PendingQuestion, RunStatus
+    from resagent.models import DirectiveKind, PendingQuestion, RunStatus
     from resagent.persistence.state import submit_user_response
 
     state = init_state("answer-run", str(tmp_path), "Goal")
@@ -157,12 +157,14 @@ def test_submit_user_response_clears_question_and_resumes(tmp_path):
     assert state.pending_question is None
     assert state.run.status == RunStatus.running
     assert state.answered_questions[-1].response == "yes, proceed"
+    assert state.user_directives[-1].kind == DirectiveKind.confirmation
+    assert state.user_directives[-1].handled is True
 
 
 def test_submit_user_response_becomes_user_directive(tmp_path):
     """The answer must reach user_directives so the controller prompt actually
     sees and obeys it (regression: answers used to dead-end in answered_questions)."""
-    from resagent.models import PendingQuestion
+    from resagent.models import DirectiveKind, PendingQuestion
     from resagent.persistence.state import submit_user_response
 
     state = init_state("answer-run", str(tmp_path), "Goal")
@@ -171,6 +173,112 @@ def test_submit_user_response_becomes_user_directive(tmp_path):
     submit_user_response(state, "q_001", "stop now")
 
     assert state.user_directives[-1].text == "stop now"
+    assert state.user_directives[-1].kind == DirectiveKind.control
+    assert state.user_directives[-1].command == "finish"
+    assert state.user_directives[-1].handled is False
+
+
+def test_informational_answer_does_not_request_replan(tmp_path):
+    from resagent.models import DirectiveKind, PendingQuestion
+    from resagent.controller.contracts import ensure_directive_replan
+    from resagent.persistence.state import submit_user_response
+
+    state = init_state("answer-information", str(tmp_path), "Goal")
+    state.pending_question = PendingQuestion(question_id="q_001", text="Dataset path?")
+
+    submit_user_response(state, "q_001", "/data/mnist is already available")
+
+    assert state.user_directives[-1].kind == DirectiveKind.information
+    assert state.user_directives[-1].handled is True
+    assert ensure_directive_replan(state) is None
+
+
+def test_legacy_directives_are_classified_when_state_is_loaded(tmp_path):
+    import json
+    from resagent.models import DirectiveKind, UserDirective
+    from resagent.persistence.state import load_state, save_state
+
+    state = init_state("legacy-directive", str(tmp_path), "Goal")
+    state.user_directives.append(UserDirective(text="placeholder"))
+    save_state(state)
+    state_file = tmp_path / state.run.run_id / "state.json"
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    payload["user_directives"] = [
+        {"text": "stop now", "source_conversation": "legacy"},
+        {"text": "the dataset is already cached", "source_conversation": "legacy"},
+    ]
+    state_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = load_state(str(tmp_path), state.run.run_id)
+
+    assert restored.user_directives[0].kind == DirectiveKind.control
+    assert restored.user_directives[0].command == "finish"
+    assert restored.user_directives[0].handled is False
+    assert restored.user_directives[1].kind == DirectiveKind.information
+    assert restored.user_directives[1].handled is True
+
+
+def test_explicit_finish_skips_pending_work_without_calling_planner(tmp_path):
+    from resagent.models import (
+        Artifact, ArtifactType, DirectiveKind, RunStatus, TaskStatus,
+    )
+    from resagent.persistence.state import append_user_directive
+
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("explicit finish must not invoke the planner")
+
+    state = init_state("finish-control", str(tmp_path), "Goal")
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.report, producer=Producer.ResAgent,
+        path="result.md",
+    ))
+    pending = AgentTask(
+        id="task_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, required=True,
+    )
+    state.tasks.append(pending)
+    directive = append_user_directive(state, "finish now")
+    ctrl = Controller(
+        PanicPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()),
+        CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+    )
+
+    obs = ctrl.step(state)
+
+    assert directive.kind == DirectiveKind.control
+    assert directive.handled is True
+    assert pending.status == TaskStatus.skipped
+    assert state.run.status == RunStatus.completed
+    assert obs.action.value == "finish"
+    assert obs.result == "ok"
+
+
+def test_explicit_finish_preserves_required_result_analysis(tmp_path):
+    from resagent.controller.contracts import apply_finish_control
+    from resagent.models import Artifact, ArtifactType, TaskStatus
+    from resagent.persistence.state import append_user_directive
+
+    state = init_state("finish-after-analysis", str(tmp_path), "Goal")
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.md",
+    ))
+    analysis = AgentTask(
+        id="task_001", agent=Producer.ExpAgent, kind=AgentKind.advise,
+        capability="analyze_results", required=True,
+    )
+    extra = AgentTask(
+        id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, required=True,
+    )
+    state.tasks.extend([analysis, extra])
+    directive = append_user_directive(state, "收尾")
+
+    assert apply_finish_control(state) is directive
+    assert analysis.status == TaskStatus.pending
+    assert extra.status == TaskStatus.skipped
+    assert directive.handled is False
 
 
 def test_paused_run_never_calls_planner(tmp_path):
@@ -320,12 +428,13 @@ def test_unhandled_directive_creates_replan_task(tmp_path):
     """A new user directive must spawn an ExpAgent re-plan task so the planner
     has a lever to change the plan (regression: directives reached the context
     but the planner had no action to act on them)."""
-    from resagent.models import TaskPriority, UserDirective
+    from resagent.models import DirectiveKind, TaskPriority, UserDirective
     from resagent.controller.contracts import ensure_directive_replan
 
     state = init_state("directive-replan", str(tmp_path), "Goal")
     state.user_directives.append(UserDirective(
-        text="改成单 seed", source_conversation="answer:q1",
+        text="改成单 seed", kind=DirectiveKind.plan_revision,
+        source_conversation="answer:q1",
     ))
 
     task = ensure_directive_replan(state)
@@ -343,12 +452,13 @@ def test_unhandled_directive_creates_replan_task(tmp_path):
 
 def test_step_surfaces_directive_as_replan_task(tmp_path):
     """A loop step with an unhandled directive must register a re-plan task."""
-    from resagent.models import UserDirective
+    from resagent.models import DirectiveKind, UserDirective
 
     ctrl = _build_mock_controller()
     state = init_state("step-replan", str(tmp_path), "Goal")
     state.user_directives.append(UserDirective(
-        text="先不做方差，单 seed", source_conversation="answer:q1",
+        text="先不做方差，单 seed", kind=DirectiveKind.plan_revision,
+        source_conversation="answer:q1",
     ))
 
     ctrl.step(state)
@@ -374,11 +484,10 @@ def test_codingagent_resolve_workspace_creates_fresh_dir_when_empty(tmp_path):
     assert _resolve_workspace({"workspace_path": "/explicit/path"}, out_dir) == "/explicit/path"
 
 
-def test_retire_superseded_marks_old_pending_tasks_skipped(tmp_path):
-    """A re-plan that omits old pending tasks must retire them (skipped), or
-    required old tasks stay pending and block finish."""
+def test_recommendations_are_append_only_without_explicit_supersedes(tmp_path):
+    """Omission from a new graph must never imply cancellation."""
     from resagent.models import AgentTask, AgentKind, Producer, TaskStatus
-    from resagent.adapters.expagent.task_conversion import _retire_superseded
+    from resagent.adapters.expagent.task_conversion import retire_superseded_actions
 
     state = init_state("retire", str(tmp_path), "Goal")
     old = AgentTask(
@@ -386,19 +495,65 @@ def test_retire_superseded_marks_old_pending_tasks_skipped(tmp_path):
         kind=AgentKind.repro_task, fingerprint="old-fp", project_ref="proj",
         input={},
     )
+    state.tasks.append(old)
+
+    retired, issues = retire_superseded_actions(
+        state, [], replacement_source="exp_decision_007",
+    )
+
+    assert retired == []
+    assert issues == []
+    assert old.status == TaskStatus.pending
+
+
+def test_explicit_supersedes_retires_only_unique_named_pending_action(tmp_path):
+    from resagent.models import AgentTask, AgentKind, Producer, TaskStatus
+    from resagent.adapters.expagent.task_conversion import retire_superseded_actions
+
+    state = init_state("retire-explicit", str(tmp_path), "Goal")
+    target = AgentTask(
+        id="task_001", source="decision_1", action_id="old_run",
+        agent=Producer.ReproAgent, kind=AgentKind.repro_task, input={},
+    )
+    unrelated = AgentTask(
+        id="task_002", source="decision_1", action_id="keep_run",
+        agent=Producer.ReproAgent, kind=AgentKind.repro_task, input={},
+    )
     done = AgentTask(
-        id="task_002", source="exp_decision_001", agent=Producer.ReproAgent,
-        kind=AgentKind.repro_task, status=TaskStatus.completed,
-        fingerprint="done-fp", project_ref="proj", input={},
+        id="task_003", source="decision_1", action_id="done_run",
+        agent=Producer.ReproAgent, kind=AgentKind.repro_task,
+        status=TaskStatus.completed, input={},
     )
-    state.tasks.extend([old, done])
-    new = AgentTask(
-        id="task_003", source="exp_decision_007", agent=Producer.ExpAgent,
-        kind=AgentKind.advise, fingerprint="new-fp", project_ref="proj",
-        input={},
+    state.tasks.extend([target, unrelated, done])
+
+    retired, issues = retire_superseded_actions(
+        state, ["old_run"], replacement_source="decision_2",
     )
 
-    _retire_superseded(state, [new])
+    assert retired == ["task_001"]
+    assert issues == []
+    assert target.status == TaskStatus.skipped
+    assert target.input["superseded_by"] == "decision_2"
+    assert unrelated.status == TaskStatus.pending
+    assert done.status == TaskStatus.completed
 
-    assert old.status == TaskStatus.skipped
-    assert done.status == TaskStatus.completed  # never retire completed
+
+def test_ambiguous_supersedes_is_reported_without_mutation(tmp_path):
+    from resagent.models import AgentTask, AgentKind, Producer, TaskStatus
+    from resagent.adapters.expagent.task_conversion import retire_superseded_actions
+
+    state = init_state("retire-ambiguous", str(tmp_path), "Goal")
+    for index in (1, 2):
+        state.tasks.append(AgentTask(
+            id=f"task_{index:03d}", source=f"decision_{index}",
+            action_id="reused_id", agent=Producer.ReproAgent,
+            kind=AgentKind.repro_task, input={},
+        ))
+
+    retired, issues = retire_superseded_actions(
+        state, ["reused_id"], replacement_source="decision_3",
+    )
+
+    assert retired == []
+    assert issues == ["ambiguous superseded action_id 'reused_id'"]
+    assert all(task.status == TaskStatus.pending for task in state.tasks)
