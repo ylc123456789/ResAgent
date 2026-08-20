@@ -258,17 +258,14 @@ ReproAgent 执行对比实验（同 seed、同 epoch、同数据，只改调度�
 ExpAgent analyze：候选 vs cosine → 调度是否重要 + 是否有更简单替代
 ```
 
-### 14.4 ground truth 基线（人工预跑，不进系统）
+### 14.4 ground truth（方向性，来自文献，无需预跑）
 
-复用 §5 流程：用现有 mixup-cifar10 基线（或最小改动脚本）在本机跑出真值。
+L3 测的是**方向性主张**，方向对硬件/配方不敏感，论文与文献共识即 ground truth，**无需本机预跑**：
 
-| 配置 | 实测测试精度 | 备注 |
-|---|---|---|
-| ResNet-18 + cosine 调度（基线） | ____ | 同 seed、同 epoch |
-| ResNet-18 + 常数 LR（参照，预期低于 cosine） | ____ | 同 seed、同 epoch |
-| （可选）schedule-free 实现 | ____ | 若官方 schedule_free 库适配 |
+1. **cosine annealing > 常数 LR**：稳健结论（约 0.5–1.5pp），换任何硬件 / CIFAR 配方都成立。
+2. **schedule-free 能追平/超过 cosine**：Defazio et al.（arXiv 2405.15682）在无调度、无需训练步数 T、无额外超参前提下实现。
 
-参考预期：cosine > 常数 LR（约 0.5–1.5pp）；schedule-free ≈ 或略高于 cosine。
+判定"对不对"只认方向 + 量级，不认绝对数字（开放 case 下 agent 配方不受控，本机绝对数未必对得上）。§5 的"本机预跑"原则针对 L1/L2 的绝对数字复现，此处不适用。
 
 ### 14.5 评分标准（两轴：过程 rubric + 结论 ground truth）
 
@@ -287,6 +284,6 @@ ExpAgent analyze：候选 vs cosine → 调度是否重要 + 是否有更简单�
 | # | 判据 |
 |---|---|
 | 1 | 系统落地/评估的方案是真实有效的方法（非幻觉），且属于"更简单调度"的合理候选 |
-| 2 | 系统报的精度数字落在人工预跑基线 ± 0.5%，对"是否追平/超过 cosine"的判断与预跑一致 |
+| 2 | 结论方向与文献一致（cosine > 常数 LR；schedule-free ≈/≥ cosine），报的数字量级合理（CIFAR 小模型合理区间）且能对回自身日志 / state.json |
 
 **通过标准**：A ≥ 8 分 且 B 两条全过。（诊断/归档/复现性复用 §8/§9/§11。）
