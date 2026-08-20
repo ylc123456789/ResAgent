@@ -2,7 +2,7 @@
 
 - **日期**: 2026-08-20
 - **测试**: L3 能力验证（开放方向 T1：只给方向、不给论文，见 `CAPABILITY_VALIDATION_TEST_PLAN.md` §14）
-- **状态**: ⏸️ 中途停止（见下）。核心能力「search → 设计 → 执行」已正面验证；问题 1 已修复（档 1），问题 2 最小修复（冗余字段清理待办）。
+- **状态**: ✅ 核心能力验证完成。全链路「search → 设计 → 执行 → 分析」走通、科学结论已产出；暴露 3 个问题（1 已修复、1 最小修复、1 待修）。
 
 ---
 
@@ -12,6 +12,7 @@
 |---|---|---|---|
 | 1 | user directive 注入 context 后，Planner 无动作可据以行动（缺 re-plan lever） | ResAgent | ✅ 已修复（档 1，`c9272e3`） |
 | 2 | dataset_cache/mirror 移植的两个缺口（无测试 + 镜像推导缺失） | CodingAgent | ⚠️ 最小修复（`cf8ace2`，`pip_index_profile` 冗余字段清理待办） |
+| 3 | 重规划不清理旧任务（supersede 缺失，required 旧任务卡 finish） | ResAgent | ⏳ 待修 |
 
 ---
 
@@ -58,3 +59,21 @@
 > 注 1：`pip_index_profile` 是冻结 M2 契约的一部分（f1bf535 已把它排除出身份指纹），纯记录一致性，不影响环境复用判断。
 
 > 注 2（最小修复，完整清理待办）：当前只做了"一行推导"（`pip_index_profile` 缺省从 `mirror_profile` 推导），能跑、manifest 记录一致。但 `pip_index_profile` 作为 `CodeTaskSpec` 的 task 字段是历史遗留（ReproAgent 的 `ReproTask` 里没有该字段）；更干净的做法是删掉它、只留 `mirror_profile`、内部推导。这是动 M2 契约的大改，暂缓，以后单独处理。
+
+---
+
+## 问题 3（待修）：重规划不清理旧任务（supersede 缺失）
+
+### 现象
+
+L3 收口时，ExpAgent 分析完（task_006）后追加了重复实验 task_007-009（与 task_003-005 完全重复）。用户回答"跳过重复、直接收口"后，重规划（exp_decision_007）正确地说"不再追加训练、移除重复三臂、仅保留一个 analyze_results 收口"——**但旧任务 007-009 没有被标记成 supersede/skip**，仍是 required+pending，卡在任务池里挡住 finish（`validate_finish` 要求所有 required 任务 resolved）。
+
+### 根因
+
+ExpAgent 重规划说的"移除重复"，到了 `actions_to_tasks`（ResAgent 的 ExpAgent 任务转换）这一步没有被落实——转换只**新增**了引用 CSV 的任务 012-014 + 分析 015，没有把旧的 007-009 标记成 supersede/skip。任务池里新旧并存，required 的旧任务挡住 finish。
+
+### 修复方向
+
+任务转换层要支持"supersede/移除"语义：重规划产出的动作图里若声明 supersede 某个旧 task，就把旧 task 标记为 skipped/superseded（而不是留着 pending）。这是 ResAgent 侧 ExpAgent adapter 的问题。
+
+> 影响：不阻塞 L3 的科学结论（数据已收集、分析已产出），但会导致 run 无法干净 finish，是"收口最后一公里"的缺口。
