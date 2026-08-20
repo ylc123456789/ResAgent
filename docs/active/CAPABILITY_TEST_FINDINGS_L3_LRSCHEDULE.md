@@ -2,7 +2,7 @@
 
 - **日期**: 2026-08-20
 - **测试**: L3 能力验证（开放方向 T1：只给方向、不给论文，见 `CAPABILITY_VALIDATION_TEST_PLAN.md` §14）
-- **状态**: ⏸️ 中途停止（见下）。核心能力「search → 设计 → 执行」已正面验证；1 个 orchestration 缺口已修复（档 1）。
+- **状态**: ⏸️ 中途停止（见下）。核心能力「search → 设计 → 执行」已正面验证；问题 1 已修复（档 1），问题 2 最小修复（冗余字段清理待办）。
 
 ---
 
@@ -11,6 +11,7 @@
 | # | 问题 | 模块 | 状态 |
 |---|---|---|---|
 | 1 | user directive 注入 context 后，Planner 无动作可据以行动（缺 re-plan lever） | ResAgent | ✅ 已修复（档 1，`c9272e3`） |
+| 2 | dataset_cache/mirror 移植的两个缺口（无测试 + 镜像推导缺失） | CodingAgent | ⚠️ 最小修复（`cf8ace2`，`pip_index_profile` 冗余字段清理待办） |
 
 ---
 
@@ -44,3 +45,16 @@
 4. `prompts.py`: 加一条"有 re-plan 任务时优先派发它"的规则。
 
 > commit: ResAgent `c9272e3`。附回归测试 `test_unhandled_directive_creates_replan_task`、`test_step_surfaces_directive_as_replan_task`。
+
+---
+
+## 问题 2（最小修复）：dataset_cache / mirror 移植的两个缺口
+
+把 ReproAgent 的 dataset_cache + mirror 机制移植到 CodingAgent（ResAgent `a0cd0dd` 线程 + CodingAgent `0b9702c` 实现）时暴露两个缺口，均已由 CodingAgent `cf8ace2` 修复：
+
+1. **`dataset_cache.py` 无测试**：231 行新模块（正则扫描 + 符号链接 + 安全边界），移植时没带测试。修复：补 15 个测试（正则误伤、链接粒度、安全边界、cache 命中、prompt 渲染）。
+2. **`mirror_profile` 与 `pip_index_profile` 缺推导**：两个字段分属不同层——`mirror_profile` 是任务层输入（config `repro_mirror_profile` → prompt `_mirror_block`），`pip_index_profile` 是环境层记录（写进 M2 manifest）。ReproAgent 的规矩是 `pip_index_profile` 从 `mirror_profile` 推导（`env_identity.py:156`）；移植时漏了这条推导，导致只传 `mirror_profile` 时 manifest 里 `pip_index_profile` 为空、跨模块记录不一致。修复：`_prepare_environment` 里 `pip_index_profile` 缺省时从 `mirror_profile` 推导（`""`/`none` 视为无镜像）。
+
+> 注 1：`pip_index_profile` 是冻结 M2 契约的一部分（f1bf535 已把它排除出身份指纹），纯记录一致性，不影响环境复用判断。
+
+> 注 2（最小修复，完整清理待办）：当前只做了"一行推导"（`pip_index_profile` 缺省从 `mirror_profile` 推导），能跑、manifest 记录一致。但 `pip_index_profile` 作为 `CodeTaskSpec` 的 task 字段是历史遗留（ReproAgent 的 `ReproTask` 里没有该字段）；更干净的做法是删掉它、只留 `mirror_profile`、内部推导。这是动 M2 契约的大改，暂缓，以后单独处理。
