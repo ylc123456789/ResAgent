@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 
-from ...models import AgentTask, Producer, TaskPriority
+from ...models import AgentTask, Producer, TaskPriority, TaskStatus
 from ...controller.contracts import resolve_action, task_fingerprint
 from ...capabilities import CapabilityError
 from .dependency_graph import dependency_graph_issues
@@ -113,7 +113,29 @@ def actions_to_tasks(
             action_tasks[name].id for name in dependency_names
             if name in action_tasks
         ]
+    _retire_superseded(state, tasks)
     return tasks, []
+
+
+def _retire_superseded(state, new_tasks: list[AgentTask]) -> None:
+    """Mark old pending tasks the new plan no longer includes as skipped.
+
+    Mirrors the code-repair supersede path (controller/actions.py marks a
+    failed task skipped when a repair task supersedes it): a re-plan that omits
+    a previous decision's pending tasks must retire them, otherwise they stay
+    required+pending and block finish (validate_finish requires every required
+    task to be resolved).
+    """
+    new_fingerprints = {task.fingerprint for task in new_tasks if task.fingerprint}
+    project_refs = {task.project_ref for task in new_tasks if task.project_ref}
+    for task in state.tasks:
+        if task.status != TaskStatus.pending:
+            continue
+        if task.fingerprint in new_fingerprints:
+            continue  # still in the plan (re-affirmed)
+        if project_refs and task.project_ref not in project_refs:
+            continue  # a different project — leave it alone
+        task.status = TaskStatus.skipped
 
 
 def _task_input(action: dict, workspace_path: str) -> dict:

@@ -372,3 +372,33 @@ def test_codingagent_resolve_workspace_creates_fresh_dir_when_empty(tmp_path):
     assert ws == str(out_dir / "repo")
     assert Path(ws).is_dir()
     assert _resolve_workspace({"workspace_path": "/explicit/path"}, out_dir) == "/explicit/path"
+
+
+def test_retire_superseded_marks_old_pending_tasks_skipped(tmp_path):
+    """A re-plan that omits old pending tasks must retire them (skipped), or
+    required old tasks stay pending and block finish."""
+    from resagent.models import AgentTask, AgentKind, Producer, TaskStatus
+    from resagent.adapters.expagent.task_conversion import _retire_superseded
+
+    state = init_state("retire", str(tmp_path), "Goal")
+    old = AgentTask(
+        id="task_001", source="exp_decision_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, fingerprint="old-fp", project_ref="proj",
+        input={},
+    )
+    done = AgentTask(
+        id="task_002", source="exp_decision_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, status=TaskStatus.completed,
+        fingerprint="done-fp", project_ref="proj", input={},
+    )
+    state.tasks.extend([old, done])
+    new = AgentTask(
+        id="task_003", source="exp_decision_007", agent=Producer.ExpAgent,
+        kind=AgentKind.advise, fingerprint="new-fp", project_ref="proj",
+        input={},
+    )
+
+    _retire_superseded(state, [new])
+
+    assert old.status == TaskStatus.skipped
+    assert done.status == TaskStatus.completed  # never retire completed
