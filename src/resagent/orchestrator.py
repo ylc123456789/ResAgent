@@ -162,6 +162,8 @@ def build_controller(
             api_key_env=config.llm.api_key_env,
             max_steps=48,
             resource_root=config.resources.root,
+            dataset_cache_dir=config.policy.repro_dataset_cache,
+            pip_index_profile=config.policy.repro_mirror_profile,
             mock=mock,
         ),
         reproagent=ReproAgentAdapter(
