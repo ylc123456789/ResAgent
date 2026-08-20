@@ -12,29 +12,19 @@ from ..context import build_codingagent_context
 from ..persistence.workspace import WorkspaceLayout
 
 
-def _resolve_workspace(spec: dict, out_dir: Path, dataset_cache_dir: str = "") -> str:
+def _resolve_workspace(spec: dict, out_dir: Path) -> str:
     """Return the coding workspace path, creating a fresh empty dir when
     neither workspace_path nor repo_url supplies one.
 
     CodingAgent's _prepare_workspace only materializes a clone when repo_url
     is set; for a create-from-scratch task it does nothing, so a Path("") here
     would make its operations fall back to the process cwd (e.g. the ResAgent
-    repo). A dedicated empty dir keeps the task sandboxed. When a dataset cache
-    is configured, symlink it into the sandbox as ``data`` so a from-scratch
-    script reads cached datasets instead of re-downloading them.
+    repo). A dedicated empty dir keeps the task sandboxed.
     """
     workspace_path = spec.get("workspace_path", "")
     if not workspace_path:
         ws = out_dir / "repo"
         ws.mkdir(parents=True, exist_ok=True)
-        if dataset_cache_dir:
-            cache = Path(dataset_cache_dir)
-            link = ws / "data"
-            if cache.is_dir() and not link.exists():
-                try:
-                    link.symlink_to(cache, target_is_directory=True)
-                except OSError:
-                    pass
         workspace_path = str(ws)
     return workspace_path
 
@@ -51,6 +41,7 @@ class CodingAgentAdapter:
         max_steps: int = 48,
         resource_root: str = "",
         dataset_cache_dir: str = "",
+        mirror_profile: str = "",
         pip_index_profile: str = "",
         mock: bool = False,
     ):
@@ -61,6 +52,7 @@ class CodingAgentAdapter:
         self.max_steps = max_steps
         self.resource_root = resource_root
         self.dataset_cache_dir = dataset_cache_dir
+        self.mirror_profile = mirror_profile
         self.pip_index_profile = pip_index_profile
         self.mock = mock
         self._imported = False
@@ -227,7 +219,7 @@ class CodingAgentAdapter:
         self._ensure_import()
         from coding_agent import CodeTaskSpec, run_code_task
 
-        workspace_path = _resolve_workspace(spec, out_dir, self.dataset_cache_dir)
+        workspace_path = _resolve_workspace(spec, out_dir)
         repo_url = spec.get("repo_url", "")
 
         task_spec = CodeTaskSpec(
@@ -249,6 +241,8 @@ class CodingAgentAdapter:
             output_dir=out_dir,
             # M2: content-addressed env management (no-op when empty).
             resource_root=self.resource_root,
+            dataset_cache_dir=self.dataset_cache_dir,
+            mirror_profile=self.mirror_profile,
             pip_index_profile=self.pip_index_profile,
             project_ref=spec.get("project_ref", ""),
         )

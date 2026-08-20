@@ -372,22 +372,3 @@ def test_codingagent_resolve_workspace_creates_fresh_dir_when_empty(tmp_path):
     assert ws == str(out_dir / "repo")
     assert Path(ws).is_dir()
     assert _resolve_workspace({"workspace_path": "/explicit/path"}, out_dir) == "/explicit/path"
-
-
-def test_codingagent_resolve_workspace_symlinks_dataset_cache(tmp_path):
-    """A from-scratch sandbox must symlink the dataset cache as data/ so the
-    script reads cached datasets instead of re-downloading them."""
-    from resagent.adapters.codingagent import _resolve_workspace
-
-    out_dir = tmp_path / "attempt_001"
-    out_dir.mkdir(parents=True)
-    cache = tmp_path / "datasets"
-    cache.mkdir()
-
-    ws = _resolve_workspace(
-        {"workspace_path": ""}, out_dir, dataset_cache_dir=str(cache),
-    )
-
-    link = Path(ws) / "data"
-    assert link.is_symlink()
-    assert link.resolve() == cache

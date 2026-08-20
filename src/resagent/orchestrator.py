@@ -163,6 +163,7 @@ def build_controller(
             max_steps=48,
             resource_root=config.resources.root,
             dataset_cache_dir=config.policy.repro_dataset_cache,
+            mirror_profile=config.policy.repro_mirror_profile,
             pip_index_profile=config.policy.repro_mirror_profile,
             mock=mock,
         ),
