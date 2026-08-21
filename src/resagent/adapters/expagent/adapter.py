@@ -50,7 +50,18 @@ class ExpAgentAdapter:
                                    input_summary=(
                                        _task_goal(task) if task is not None
                                        else state.current_summary or state.run.research_goal[:200]
-                                   ))
+                                   ),
+                                   capability=task.capability if task else "",
+                                   project_ref=task.project_ref if task else "",
+                                   depends_on=task.depends_on if task else [],
+                                   input_artifacts=[
+                                       item.get("artifact_id", "")
+                                       for item in (
+                                           task.input.get("input_artifacts", [])
+                                           if task else []
+                                       )
+                                       if item.get("artifact_id")
+                                   ])
 
         if self.mock:
             raw = self._mock_advise(state)

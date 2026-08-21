@@ -66,7 +66,15 @@ class ReproAgentAdapter:
         repro_ws = layout.reproagent_workspace(task_n, attempt_number)
         layout.write_task_manifest(task_dir, task_id=task.id,
                                    module="ReproAgent", attempt=attempt_number,
-                                   input_summary=task.input.get("experiment_goal", ""))
+                                   input_summary=task.input.get("experiment_goal", ""),
+                                   capability=task.capability,
+                                   project_ref=task.project_ref,
+                                   depends_on=task.depends_on,
+                                   input_artifacts=[
+                                       item.get("artifact_id", "")
+                                       for item in task.input.get("input_artifacts", [])
+                                       if item.get("artifact_id")
+                                   ])
 
         if self.mock:
             raw = self._mock_execute(spec)
@@ -77,6 +85,19 @@ class ReproAgentAdapter:
             raw["repo_path"] = str(mock_repo)
             (repro_ws / "result.md").write_text(
                 f"# Mock Reproduction Result\n\n{raw['summary']}\n",
+                encoding="utf-8",
+            )
+            (repro_ws / "result.json").write_text(
+                json.dumps({
+                    "schema": "repro_result_v1",
+                    "status": "completed",
+                    "summary": raw["summary"],
+                    "metrics": {},
+                    "parameters": {},
+                    "deviations": [],
+                    "evidence": [],
+                    "warnings": [],
+                }, indent=2),
                 encoding="utf-8",
             )
             from ..persistence.sessions import write_mock_card
@@ -106,14 +127,18 @@ class ReproAgentAdapter:
         with open(adapter_file, "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2, ensure_ascii=False, default=str)
 
-        # Artifact path points to the actual result inside repo_workspace/
-        actual_result = repro_ws / "result.md"
+        # Downstream agents consume the structured result; Markdown remains
+        # available as the human-readable report.
+        actual_result = repro_ws / "result.json"
         if actual_result.exists():
             artifact_path = layout.relpath(actual_result)
         else:
-            artifact_path = layout.relpath(repro_ws / "result.md")  # best-effort
+            artifact_path = layout.relpath(repro_ws / "result.md")
 
         metadata = {"outcome": outcome, "raw_result": raw}
+        human_report = repro_ws / "result.md"
+        if human_report.exists():
+            metadata["human_report_path"] = layout.relpath(human_report)
         card = repro_ws / "session.yaml"
         if card.exists():
             metadata["session_manifest"] = str(card)
@@ -201,6 +226,7 @@ class ReproAgentAdapter:
                 "repo_path": str(result_state.repo_context.repo_path)
                 if result_state.repo_context else "",
                 "coding_issues": _collect_coding_issues(result_state),
+                "structured_result": getattr(result_state, "structured_result", {}),
             }
             return raw, outcome
         except Exception as e:

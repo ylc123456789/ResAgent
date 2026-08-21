@@ -25,6 +25,19 @@ from ..resources import (
 )
 
 
+def _latest_optional_recommendations(state: ResearchState) -> list[dict]:
+    """Return optional actions from the newest scientific decision."""
+    for artifact in reversed(state.artifacts):
+        raw = artifact.metadata.get("raw_decision")
+        if not isinstance(raw, dict):
+            continue
+        return [
+            action for action in raw.get("recommended_actions", [])
+            if isinstance(action, dict) and not bool(action.get("required", True))
+        ]
+    return []
+
+
 class ControllerActions:
     """Action handlers shared by the public Controller loop."""
 
@@ -407,22 +420,15 @@ class ControllerActions:
                 task_ids=list(check.task_ids),
             )
         summary = str(planned.params.get("summary") or "").strip() or "Run finished."
-        # Surface optional follow-ups the advisor proposed but the run chose
-        # not to execute (required=False, never dispatched). They are part of
-        # the scientific record, not of this run's committed scope.
-        followups = [
-            task for task in state.tasks
-            if not task.required and task.status == TaskStatus.pending
-        ]
+        # Optional recommendations stay in the scientific decision rather than
+        # entering the committed task queue.
+        followups = _latest_optional_recommendations(state)
         if followups:
             lines = "\n".join(
-                f"- {task.id} ({task.capability or task.kind.value}): "
-                + (str(
-                    task.input.get("objective")
-                    or task.input.get("task_goal")
-                    or ""
-                ).strip() or "(no objective)")[:140]
-                for task in followups
+                f"- {item.get('action_id', '(unnamed)')} "
+                f"({item.get('capability', 'unknown')}): "
+                f"{str(item.get('objective', '')).strip() or '(no objective)'}"
+                for item in followups
             )
             summary += f"\n\nProposed follow-ups (optional, not executed):\n{lines}"
         return Observation(

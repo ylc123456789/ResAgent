@@ -580,12 +580,11 @@ def test_p4_scenario_is_repro_then_expagent_then_finish(tmp_path):
 
 
 def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
-    """Optional follow-up proposals stay pending and are surfaced at finish.
+    """Optional follow-ups remain scientific recommendations, not tasks.
 
     A bounded run must finish when its committed (required) work is done,
     even if the advisor proposed optional next steps (required=False). Those
-    proposals are part of the scientific record: the finish summary must
-    list them as proposed-but-not-executed.
+    proposals stay in the decision artifact and are surfaced at finish.
     """
     state = init_state(
         "prop", str(tmp_path), "Run a bounded experiment and analyze it",
@@ -604,11 +603,6 @@ def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
             artifacts=["a2"],
             input={"objective": "Interpret the bounded run"},
         ),
-        AgentTask(
-            id="task_003", agent=Producer.ReproAgent, kind=AgentKind.repro_task,
-            capability="execute_experiment", required=False,
-            input={"objective": "Run the full 160-epoch reproduction"},
-        ),
     ])
     state.artifacts.append(Artifact(
         id="a1", type=ArtifactType.repro_result, producer=Producer.ReproAgent,
@@ -617,6 +611,12 @@ def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
     state.artifacts.append(Artifact(
         id="a2", type=ArtifactType.scientific_decision,
         producer=Producer.ExpAgent, path="decision.json",
+        metadata={"raw_decision": {"recommended_actions": [{
+            "action_id": "full_reproduction",
+            "capability": "execute_experiment",
+            "objective": "Run the full 160-epoch reproduction",
+            "required": False,
+        }]}},
     ))
     planner = ScriptedPlanner([
         PlannedAction(ActionName.finish, {"summary": "Bounded goal satisfied."}),
@@ -626,8 +626,28 @@ def test_finish_summary_lists_unexecuted_optional_proposals(tmp_path):
     result = ctrl.run(state, max_steps=5)
 
     assert result.run.status == RunStatus.completed
-    proposal = result.find_task("task_003")
-    assert proposal.status == TaskStatus.pending  # never dispatched
+    assert result.find_task("task_003") is None
     assert "Proposed follow-ups" in result.current_summary
-    assert "task_003" in result.current_summary
+    assert "full_reproduction" in result.current_summary
     assert "160-epoch" in result.current_summary
+
+
+def test_optional_actions_are_not_materialized_as_tasks(tmp_path):
+    state = init_state("optional-record-only", str(tmp_path), "goal")
+    adapter = ExpAgentAdapter(mock=True, registry=make_registry())
+    adapter._state = state
+
+    tasks = adapter._actions_to_tasks([{
+        "action_id": "future_run",
+        "capability": "execute_experiment",
+        "objective": "Run a future experiment",
+        "rationale": "Useful later",
+        "depends_on": [],
+        "project_ref": "project",
+        "required": False,
+        "expected_metrics": [],
+        "requires_gpu": False,
+    }], "decision", 1)
+
+    assert tasks == []
+    assert adapter._normalization_issues == []

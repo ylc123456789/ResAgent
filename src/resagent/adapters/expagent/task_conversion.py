@@ -13,7 +13,8 @@ import os
 import re
 
 from ...models import AgentTask, Producer, TaskPriority, TaskStatus
-from ...controller.contracts import resolve_action, task_fingerprint
+from ...controller.contracts import resolve_action
+from ...controller.tasks import create_task, task_fingerprint
 from ...capabilities import CapabilityError
 from .dependency_graph import dependency_graph_issues
 
@@ -37,7 +38,11 @@ def actions_to_tasks(
         if str(action.get("action_id", "")).strip()
     }
 
-    for index, action in enumerate(actions):
+    for action in actions:
+        # Optional recommendations are scientific record, not committed work.
+        # They remain in scientific_decision.json and are surfaced at finish.
+        if not bool(action.get("required", True)):
+            continue
         action_id = str(action.get("action_id", "")).strip()
         dependency_names = [
             str(value).strip() for value in action.get("depends_on", [])
@@ -83,14 +88,14 @@ def actions_to_tasks(
                 action_tasks[action_id] = equivalent
             continue
 
-        task = AgentTask(
-            id=f"task_{next_num + index:03d}",
+        task = create_task(
+            state,
             source=source,
             agent=agent,
             kind=kind,
             priority=TaskPriority.medium,
             capability=canonical,
-            required=bool(action.get("required", True)),
+            required=True,
             analysis_required=(
                 bool(analysis_required)
                 if capability in {"execute_experiment", "reproduce_experiment"}
@@ -101,6 +106,8 @@ def actions_to_tasks(
             action_id=action_id,
             project_ref=str(action.get("project_ref", "")).strip(),
             input=task_input,
+            append=False,
+            task_number=next_num + len(tasks),
         )
         tasks.append(task)
         pending_dependencies.append((task, dependency_names))

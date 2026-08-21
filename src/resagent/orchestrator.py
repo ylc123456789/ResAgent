@@ -14,6 +14,7 @@ from .capabilities import CapabilityRegistry
 from .integrations.module_paths import resolve_all
 from .controller.planner import Planner
 from .controller import Controller
+from .controller.tasks import create_task
 from .adapters.expagent import ExpAgentAdapter
 from .adapters.codingagent import CodingAgentAdapter
 from .adapters.reproagent import ReproAgentAdapter
@@ -33,8 +34,8 @@ def seed_initial_advisory_task(state: ResearchState) -> AgentTask:
     a free-floating planner hint) so ``allowed_action_candidates`` only ever
     exposes real, task-bound actions.
     """
-    task = AgentTask(
-        id=f"task_{state.next_task_number():03d}",
+    task = create_task(
+        state,
         source="resagent",
         agent=Producer.ExpAgent,
         kind=AgentKind.advise,
@@ -50,7 +51,6 @@ def seed_initial_advisory_task(state: ResearchState) -> AgentTask:
             ),
         },
     )
-    state.tasks.append(task)
     return task
 
 

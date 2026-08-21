@@ -134,6 +134,8 @@ class TestReproAgentAdapter:
 
         assert result["artifact"] is not None
         assert result["artifact"].producer == Producer.ReproAgent
+        assert result["artifact"].path.endswith("result.json")
+        assert result["artifact"].metadata["human_report_path"].endswith("result.md")
         assert result["outcome"] == "completed"
 
     def _install_fake_reproagent(self, tmp_path, monkeypatch):

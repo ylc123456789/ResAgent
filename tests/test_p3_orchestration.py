@@ -440,12 +440,17 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
         kind=AgentKind.repro_task, project_ref="project",
         input={"experiment_goal": "run", "workspace_intent": "shared"},
     )
-    state.tasks.append(repro)
+    sibling = AgentTask(
+        id="task_002", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, project_ref="project",
+        input={"experiment_goal": "run another configuration"},
+    )
+    state.tasks.extend([repro, sibling])
     operator = RepairableRepro()
     controller = Controller(
         planner=ScriptedPlanner([
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
-            PlannedAction(ActionName.call_coding_agent, {"task_id": "task_002"}),
+            PlannedAction(ActionName.call_coding_agent, {"task_id": "task_003"}),
             PlannedAction(ActionName.call_repro_agent, {"task_id": repro.id}),
         ]),
         expagent=ExpAgentAdapter(mock=True, registry=make_registry()),
@@ -457,10 +462,11 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
     repair = state.tasks[-1]
 
     assert blocked_observation.result == "ok"
-    assert "scheduled CodingAgent repair task_002" in blocked_observation.detail
+    assert "scheduled CodingAgent repair task_003" in blocked_observation.detail
     assert blocked_observation.task_ids == [repro.id, repair.id]
     assert repro.status == TaskStatus.blocked
     assert repair.agent == Producer.CodingAgent
+    assert repair.capability == "modify_code"
     assert repair.input["workspace_path"] == str(repo)
     assert repair.input["env_policy"] == "frozen"
     assert repair.input["env_name"] == "env-repair"
@@ -471,6 +477,8 @@ def test_blocked_operator_routes_repair_and_resumes(tmp_path):
     assert repair.status == TaskStatus.completed
     assert repro.status == TaskStatus.pending
     assert "_repair_task_id" not in repro.input
+    assert sibling.status == TaskStatus.pending
+    assert repair.id in sibling.depends_on
 
     retry_observation = controller.step(state)
     assert retry_observation.result == "ok"

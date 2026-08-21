@@ -107,7 +107,10 @@ class WorkspaceLayout:
 
     def write_task_manifest(self, task_dir: Path, *, task_id: str,
                             module: str, attempt: int = 1,
-                            input_summary: str = "") -> Path:
+                            input_summary: str = "", capability: str = "",
+                            project_ref: str = "",
+                            depends_on: list[str] | None = None,
+                            input_artifacts: list[str] | None = None) -> Path:
         """Write task_manifest.json into the task directory."""
         task_dir.mkdir(parents=True, exist_ok=True)
         manifest = {
@@ -115,6 +118,10 @@ class WorkspaceLayout:
             "module": module,
             "attempt": attempt,
             "input_summary": input_summary[:500],
+            "capability": capability,
+            "project_ref": project_ref,
+            "depends_on": list(depends_on or []),
+            "input_artifacts": list(input_artifacts or []),
             "started_at": datetime.now(timezone.utc).isoformat(),
             "run_id": self.run_id,
         }

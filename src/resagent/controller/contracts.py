@@ -10,8 +10,6 @@ explicit engineering smoke test with `analysis_required=False`).
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +18,7 @@ from ..models import (
     ResearchState, RunStatus, TaskPriority, TaskStatus,
 )
 from ..capabilities import CapabilityError
+from .tasks import create_task, task_fingerprint
 
 
 TERMINAL_RUN_STATUSES = {RunStatus.completed, RunStatus.failed}
@@ -184,8 +183,8 @@ def ensure_analysis_coverage(
     if state.find_task_by_fingerprint(fingerprint) is not None:
         return None
 
-    task = AgentTask(
-        id=f"task_{state.next_task_number():03d}",
+    task = create_task(
+        state,
         source=experiment_task.id,
         agent=Producer.ExpAgent,
         kind=AgentKind.advise,
@@ -206,7 +205,6 @@ def ensure_analysis_coverage(
             ),
         },
     )
-    state.tasks.append(task)
     state.decisions.append(DecisionRecord(
         id=f"decision_{state.next_decision_number():03d}",
         made_by="ResAgent",
@@ -241,8 +239,8 @@ def ensure_directive_replan(state: ResearchState) -> AgentTask | None:
         directive.handled = True
     directive_block = "\n".join(f"- {d.text}" for d in unhandled)
 
-    task = AgentTask(
-        id=f"task_{state.next_task_number():03d}",
+    task = create_task(
+        state,
         source="user_directive",
         agent=Producer.ExpAgent,
         kind=AgentKind.advise,
@@ -264,7 +262,6 @@ def ensure_directive_replan(state: ResearchState) -> AgentTask | None:
             ),
         },
     )
-    state.tasks.append(task)
     state.decisions.append(DecisionRecord(
         id=f"decision_{state.next_decision_number():03d}",
         made_by="ResAgent",
@@ -364,19 +361,3 @@ def validate_finish(state: ResearchState) -> FinishCheck:
     if not state.artifacts:
         return FinishCheck(False, "the run has no result artifacts")
     return FinishCheck(True)
-
-
-def task_fingerprint(executor: Producer, capability: str,
-                     payload: dict[str, Any]) -> str:
-    """Return a stable semantic identity for deduplicating planned work."""
-    ignored = {"description", "supersedes_task_id", "_retry_scheduled"}
-    normalized = {
-        key: payload[key] for key in sorted(payload)
-        if key not in ignored and payload[key] not in ("", [], None)
-    }
-    raw = json.dumps(
-        {"executor": executor.value, "capability": capability,
-         "input": normalized},
-        ensure_ascii=True, sort_keys=True, default=str,
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]

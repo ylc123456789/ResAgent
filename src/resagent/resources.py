@@ -14,6 +14,7 @@ from pathlib import Path
 from .models import AgentKind, AgentTask, Producer, ResearchState, ResourceRef, TaskStatus
 from .persistence.sessions import read_session_card
 from .persistence.workspace import WorkspaceLayout
+from .controller.tasks import create_task
 
 
 def resolve_artifact_path(
@@ -451,11 +452,12 @@ def schedule_coding_repair(
     )
     if not path or not env_name:
         return None
-    task = AgentTask(
-        id=f"task_{state.next_task_number():03d}",
+    task = create_task(
+        state,
         source=repro_task.id,
         agent=Producer.CodingAgent,
         kind=AgentKind.coding_task,
+        capability="modify_code",
         action_id=f"repair_{repro_task.id}",
         project_ref=repro_task.project_ref,
         input={
@@ -474,14 +476,24 @@ def schedule_coding_repair(
     repro_task.input["_repair_task_id"] = task.id
     if task.id not in repro_task.depends_on:
         repro_task.depends_on.append(task.id)
-    state.tasks.append(task)
     return task
 
 
 def resume_repaired_tasks(state: ResearchState, coding_task: AgentTask) -> None:
-    """Return blocked operator tasks to pending after their repair completes."""
+    """Resume the blocked task and bind its patch to pending sibling runs."""
     for task in state.tasks:
-        if task.input.get("_repair_task_id") == coding_task.id and task.status == TaskStatus.blocked:
+        if (
+            task.agent != Producer.ReproAgent
+            or task.project_ref != coding_task.project_ref
+            or task.status not in {TaskStatus.pending, TaskStatus.blocked}
+        ):
+            continue
+        if coding_task.id not in task.depends_on:
+            task.depends_on.append(coding_task.id)
+        if (
+            task.input.get("_repair_task_id") == coding_task.id
+            and task.status == TaskStatus.blocked
+        ):
             task.status = TaskStatus.pending
             task.error = ""
             task.input.pop("_repair_task_id", None)

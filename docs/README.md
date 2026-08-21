@@ -8,7 +8,13 @@
 
 ## active/ — 当前进行
 
-当前没有正在实施的里程碑。新工作开始时在这里建立唯一的 active 计划，完成后归档到 `completed/`。
+| 文档 | 内容 |
+|---|---|
+| SIMPLIFIED_TASK_ATTEMPT_ARTIFACT_REPAIR_PLAN.md | **当前唯一实施计划**：收敛 Task、Attempt、Artifact、Resource 边界，修复实验输出覆盖、代码修复传播和动态任务契约问题 |
+| FOUR_MODULE_CODE_REVIEW_2026-08-20.md | 本轮修复的问题基线与四模块审查证据 |
+| CAPABILITY_TEST_FINDINGS_L3_LRSCHEDULE.md | L3 学习率调度真实测试记录；作为产物覆盖与修复闭环的验收样本 |
+
+当前开发以 `SIMPLIFIED_TASK_ATTEMPT_ARTIFACT_REPAIR_PLAN.md` 为准。完成后将计划和最终验收报告一起归档到 `completed/`。
 
 ## reference/ — 常驻（现行契约与架构）
 

@@ -68,7 +68,15 @@ class CodingAgentAdapter:
 
         layout.write_task_manifest(out_dir, task_id=task.id,
                                    module="CodingAgent", attempt=attempt_number,
-                                   input_summary=task.input.get("task_goal", ""))
+                                   input_summary=task.input.get("task_goal", ""),
+                                   capability=task.capability,
+                                   project_ref=task.project_ref,
+                                   depends_on=task.depends_on,
+                                   input_artifacts=[
+                                       item.get("artifact_id", "")
+                                       for item in task.input.get("input_artifacts", [])
+                                       if item.get("artifact_id")
+                                   ])
 
         if self.mock:
             raw = self._mock_execute(spec)
