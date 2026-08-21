@@ -77,3 +77,31 @@ ExpAgent 重规划说的"移除重复"，到了 `actions_to_tasks`（ResAgent �
 在 `actions_to_tasks`（`adapters/expagent/task_conversion.py`）末尾加 `_retire_superseded`：把同 project、仍 pending、指纹不在新图里的旧任务标记为 `TaskStatus.skipped`——**复用 code-repair 路径已有的 supersede→skip 语义（`controller/actions.py`），不新增状态、不动契约**。
 
 > commit: ResAgent `3d33cc5`。附回归测试 `test_retire_superseded_marks_old_pending_tasks_skipped`。
+
+---
+
+## 附 1：环境/效率问题（测试期间发现，非本测试 bug）
+
+**现象**：每次新 run（新 run_id）都会重新下载安装 torch（2.5GB），且 torch wheel 未缓存（pip `--no-cache-dir`），导致新 env 反复重下。
+
+**根因**：M2 环境 `env_id = resenv_<run_id>_<fingerprint>`，其中 slug 跟着 run_id 走，**不跨 run 复用**；加上 wheel 不缓存，所以每次新 run 都要重新下 2.5GB torch（~30-80 分钟，视镜像速度）。
+
+**影响**：纯重复劳动，拖慢每次新 run 的启动。
+
+**建议（供后续优化）**：
+1. M2 env 复用应按 `project_ref` + spec fingerprint 而非 run_id；
+2. torch/torchvision wheel 应缓存复用（去掉 `--no-cache-dir` 或用共享 wheel 缓存）。
+
+---
+
+## 附 2：resagent run --goal <长文本> 触发 ENAMETOOLONG
+
+**现象**：`resagent run --goal "<内联长文本>"`（中文 >255 字节）启动即崩，报 `OSError: [Errno 36] File name too long`。
+
+**根因**：`main.py` 的 `_read_goal` 把 `--goal` 参数**无条件 `Path(goal_spec).exists()` 去 `os.stat()`**，长文本被当文件名触发 ENAMETOOLONG。
+
+**影响**：任何"内联长 goal"都会崩；之前 L1/L2/L3 都用 `--goal /path/goal.md`（短文件路径）所以没暴露。
+
+**建议**：`_read_goal` 用 `try/except OSError` 包住 `p.exists()`，或先判断长度 >255 就 fallback 成"纯文本返回"。
+
+**绕过**：把 goal 写进文件 + `--goal /path/goal.md`。
