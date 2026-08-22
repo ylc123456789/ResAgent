@@ -121,3 +121,43 @@ resagent run/answer
 - 公共入口 import 测试（`import resagent`、`python -m resagent.main --help`）
 - 修改前后依赖对比（不新增依赖）
 - 删除代码均附可达性证据
+
+## 8. 执行结果（实际）
+
+### 8.1 提交记录（分支 `codex/readability-cleanup-20260822`）
+
+| commit | 内容 |
+|---|---|
+| `1a5ec76` | docs: 只读审查报告 |
+| `5a982c6` | refactor: 删死代码与惰性配置（R1） |
+| `0021620` | refactor: capability 词汇表防漂移守卫（R2） |
+| `1611102` | fix: 修 6 个缺陷（R3） |
+| `351cd07` | test: 回归测试（R4） |
+| （待提交） | fix: step 单步语义、恢复会话恢复接口、env_id 校验、api 计数（第二轮 R1-R4） |
+
+### 8.2 已处理
+
+- **死代码删除**：supersede 死分支、`build_expagent_context`、`SafetyPolicy`、`can_retry`、`available()`、`SUMMARY_PROMPT`、`module_paths` 死字段（callable/git）、`cleanup_enabled`/`max_task_retries`/`confirm_before_*` 惰性配置。
+- **capability 词汇守卫**：`_CAPABILITY_KIND` 与 `V2_CAPABILITIES` import 时断言一致。
+- **6 个缺陷**：`step` 静默 no-op、CLI 路径层级（env 压过 CLI）、planner 对非法 action 默认 finish、coding adapter 返回空 workspace_path、`/use` `/status` 丢弃 state_patch、chat 路径不生成报告。
+- **第二轮修正**：
+  - `step` 改为直接 `ctrl.step(state)`（非终态保持 running，不再被 `run_loop` 标记 interrupted）。
+  - 恢复 `rebuild_from_events` / `list_conversations` 公开接口 + 测试 + 文档（首轮误判为死代码，实际是恢复路径）。
+  - 统一 `_validate_env_id`：`read_manifest` / `acquire_lease` / `_lifecycle_lock_path` / `cleanup._write_manifest` 复用，拒绝空值、绝对路径、`..`、路径分隔符。
+  - `api_calls_used` 只在真正调用 planner 时计数；显式 finish、retry 不计数。
+
+### 8.3 延期项（未处理，附原因）
+
+- **R2 去重（低 severity、drift 未实际发生）**：`_ensure_import`×3、task_manifest×2、outcome 词汇×3、workspace 路径×4、`_pid_alive`×3、chat 启动 `resolve_all`×2。按计划「不因『看起来更工程化』拆更多层」克制处理。
+- **R3 状态语义（需单独评审）**：`analysis_required` 双源折叠、`submit_user_response` 职责错位——触及状态机与 legacy 兼容，风险高于收益。
+
+### 8.4 测试结果
+
+- 全量：**224 passed**（修改前 220）。
+- 新增回归：`step` 推进且保持 running、planner fail-closed、generate_all、env_id 路径穿越、显式 finish 不耗 API 预算。
+- 恢复：`rebuild_from_events` / `list_conversations` 相关测试。
+- `git diff --check` 通过；`import resagent` 通过；无新增依赖。
+
+### 8.5 经验教训
+
+删除死代码必须以「公开 API + 测试覆盖」为准，不能仅凭内部零引用判定——首轮 `CapabilityRegistry.get()` 与 `rebuild_from_events`/`list_conversations` 均被误判，测试与任务单已纠正。
