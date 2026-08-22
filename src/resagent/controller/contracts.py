@@ -17,7 +17,7 @@ from ..models import (
     ActionName, AgentKind, AgentTask, DecisionRecord, DirectiveKind, Producer,
     ResearchState, RunStatus, TaskPriority, TaskStatus,
 )
-from ..capabilities import CapabilityError
+from ..capabilities import CapabilityError, V2_CAPABILITIES
 from .tasks import create_task, task_fingerprint
 
 
@@ -38,6 +38,13 @@ _CAPABILITY_KIND: dict[str, tuple[AgentKind, str]] = {
     "search_literature": (AgentKind.advise, "search_literature"),
     "ask_user": (AgentKind.ask_user, "ask_user"),
 }
+
+# The capability vocabulary is frozen in capabilities.V2_CAPABILITIES. This
+# mapping only adds the internal AgentKind/canonical routing for each frozen
+# capability, so it must never drift from the single source of truth.
+assert set(_CAPABILITY_KIND) == set(V2_CAPABILITIES), (
+    "capability vocabulary drift: _CAPABILITY_KIND != V2_CAPABILITIES"
+)
 
 
 @dataclass(frozen=True)
