@@ -31,6 +31,7 @@ from ..orchestrator import init_run, resume_run, status as run_status
 from ..persistence.state import (
     append_user_directive, save_state, submit_user_response,
 )
+from ..persistence.report import generate_all
 from .session_tools import SessionToolsMixin
 
 
@@ -317,6 +318,7 @@ class ChatTools(SessionToolsMixin):
         controller = self.controller_factory()
         state = controller.run(state, max_steps=max_steps)
         save_state(state)
+        generate_all(state)
 
         summary = self._summarize_run_progress(state, max_steps)
         session_patch = self._scan_run_sessions(conv.workspace_root, run_id)
@@ -357,6 +359,7 @@ class ChatTools(SessionToolsMixin):
         controller = self.controller_factory()
         state = controller.run(state, max_steps=max_steps)
         save_state(state)
+        generate_all(state)
 
         summary = self._summarize_run_progress(state, max_steps)
         session_patch = self._scan_run_sessions(conv.workspace_root, run_id)

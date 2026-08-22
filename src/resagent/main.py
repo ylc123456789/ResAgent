@@ -118,13 +118,15 @@ def main():
 def _dispatch(args):
     cfg = load_config(getattr(args, "config", ""))
 
-    # CLI args override config
+    # CLI args override config. They go to the cmd_* (tier-1) slots so they
+    # win over env vars in module_paths resolution, per the documented
+    # 5-tier priority (CLI > env > config > import > vendor).
     if getattr(args, "expagent_path", ""):
-        cfg.agents.expagent = args.expagent_path
+        cfg.cmd_expagent = args.expagent_path
     if getattr(args, "codingagent_path", ""):
-        cfg.agents.codingagent = args.codingagent_path
+        cfg.cmd_codingagent = args.codingagent_path
     if getattr(args, "reproagent_path", ""):
-        cfg.agents.reproagent = args.reproagent_path
+        cfg.cmd_reproagent = args.reproagent_path
 
     if args.command == "init":
         goal = _read_goal(args.goal)
@@ -162,6 +164,11 @@ def _dispatch(args):
         if state is None:
             print(f"No run found: {args.workspace}/{args.run_id}")
             sys.exit(1)
+        ctrl = build_controller(cfg, mock=mock)
+        state = run_loop(state, ctrl, max_steps=1)
+        save_state(state)
+        generate_all(state)
+        print(f"Run status: {state.run.status.value}")
     elif args.command == "answer":
         state = resume_run(args.workspace, args.run_id)
         if state is None:

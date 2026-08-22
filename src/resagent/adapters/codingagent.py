@@ -127,7 +127,7 @@ class CodingAgentAdapter:
             "artifact": artifact,
             "raw": raw,
             "outcome": outcome,
-            "workspace_path": spec.get("workspace_path", ""),
+            "workspace_path": _resolve_workspace(spec, out_dir),
             "session_manifest": str(card) if card.exists() else "",
         }
 

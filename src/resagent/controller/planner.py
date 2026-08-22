@@ -153,11 +153,13 @@ class Planner:
         """Parse LLM JSON response into a PlannedAction."""
         data = _extract_json(raw)
 
-        action_str = data.get("action", "finish")
+        action_str = data.get("action", "")
         try:
             action = ActionName(action_str)
         except ValueError:
-            action = ActionName.finish
+            # Fail closed: an unusable action must never silently map to the
+            # terminal `finish` action. Let choose_action retry, then interrupt.
+            raise PlannerError(f"LLM returned invalid action: {action_str!r}")
 
         return PlannedAction(
             action=action,

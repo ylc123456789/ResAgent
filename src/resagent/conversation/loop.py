@@ -304,6 +304,8 @@ def handle_slash(conv: ConversationState, cmd: str, tools: ChatTools) -> str | N
             return None
         return f"Unknown command: {name}. Try /help."
 
+    dirname = tools.config.chat.conversations_dirname
+
     if name in ("/quit", "/exit", "/q"):
         return _QUIT
     if name == "/new":
@@ -326,16 +328,25 @@ def handle_slash(conv: ConversationState, cmd: str, tools: ChatTools) -> str | N
     if name == "/runs":
         return tools.execute(conv, "list_runs", {}).text
     if name == "/status":
-        return tools.execute(conv, "inspect_run", {"run_id": arg}).text
+        outcome = tools.execute(conv, "inspect_run", {"run_id": arg})
+        append_event(conv, ConversationEventType.tool_result, {
+            "tool": "inspect_run", "ok": outcome.ok,
+            "detail": outcome.text[:2000], "state_patch": outcome.state_patch,
+        }, dirname)
+        return outcome.text
     if name == "/use":
         if not arg:
             return "Usage: /use <run_id>"
-        return tools.execute(conv, "inspect_run", {"run_id": arg}).text
+        outcome = tools.execute(conv, "inspect_run", {"run_id": arg})
+        append_event(conv, ConversationEventType.tool_result, {
+            "tool": "inspect_run", "ok": outcome.ok,
+            "detail": outcome.text[:2000], "state_patch": outcome.state_patch,
+        }, dirname)
+        return outcome.text
     if name == "/brief":
         if conv.pending_brief is None:
             return "No pending brief."
         return "Pending brief (awaiting confirmation):\n" + conv.pending_brief.render_display()
-    dirname = tools.config.chat.conversations_dirname
     if name == "/cancel":
         if conv.pending_brief is None:
             return "No pending brief."
