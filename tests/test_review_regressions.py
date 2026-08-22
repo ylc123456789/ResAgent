@@ -61,6 +61,9 @@ def test_step_subcommand_advances_run(tmp_path, monkeypatch):
 
     after = load_state(str(tmp_path), run_id)
     assert len(after.observations) > before, "step must advance the run by one step"
+    assert after.run.status.value == "running", (
+        "a non-terminal single step must keep the run running, not interrupted"
+    )
     assert "Run status:" in out.getvalue()
 
 
@@ -83,3 +86,60 @@ def test_parse_response_fails_closed_on_invalid_action():
     planner = Planner(mock=True)
     with pytest.raises(PlannerError):
         planner._parse_response('{"action": "not_a_real_action"}')
+
+
+def test_env_id_path_traversal_is_rejected(tmp_path):
+    import json
+    from resagent.resources import _validate_env_id, acquire_lease, read_manifest
+
+    for bad in ["", ".", "..", "../evil", "a/b", "a\\b", "/abs"]:
+        with pytest.raises(ValueError):
+            _validate_env_id(bad)
+
+    root = str(tmp_path)
+    for bad in ["../evil", "a/b", "/abs"]:
+        with pytest.raises(ValueError):
+            read_manifest(root, bad)
+        with pytest.raises(ValueError):
+            acquire_lease(root, bad, "run", "task")
+
+    # legal layout unchanged: manifest readable from root/environments/<id>
+    env_dir = tmp_path / "environments" / "env1"
+    env_dir.mkdir(parents=True)
+    (env_dir / "manifest.json").write_text(
+        json.dumps({"env_id": "env1", "state": "ready"}), encoding="utf-8",
+    )
+    manifest = read_manifest(root, "env1")
+    assert manifest is not None
+    assert manifest["env_id"] == "env1"
+    assert manifest["state"] == "ready"
+
+
+def test_explicit_finish_does_not_consume_api_budget(tmp_path):
+    from resagent.models import Artifact, ArtifactType, Producer, RunStatus
+    from resagent.persistence.state import append_user_directive, init_state
+    from resagent.controller import Controller
+    from resagent.adapters.expagent import ExpAgentAdapter
+    from resagent.adapters.codingagent import CodingAgentAdapter
+    from resagent.adapters.reproagent import ReproAgentAdapter
+    from tests.v2_registry import make_registry
+
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("planner must not run for explicit finish")
+
+    state = init_state("finish-budget", str(tmp_path), "Goal")
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.report, producer=Producer.ResAgent,
+        path="result.md",
+    ))
+    append_user_directive(state, "收口")
+    ctrl = Controller(
+        PanicPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()),
+        CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+    )
+
+    ctrl.step(state)
+
+    assert state.run.status == RunStatus.completed
+    assert state.budget.api_calls_used == 0
