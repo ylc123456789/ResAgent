@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 
 from .config import load_config
+from .controller.planner import PlannerError
+from .models import RunStatus
 from .orchestrator import init_run, build_controller, run_loop, resume_run, status
 from .persistence.state import save_state, submit_user_response
 from .persistence.report import generate_all
@@ -165,7 +167,16 @@ def _dispatch(args):
             print(f"No run found: {args.workspace}/{args.run_id}")
             sys.exit(1)
         ctrl = build_controller(cfg, mock=mock)
-        ctrl.step(state)
+        # Mirror Controller.run's resume semantics: an interrupted run resumes
+        # as running before the next action is executed.
+        if state.run.status == RunStatus.interrupted:
+            state.run.status = RunStatus.running
+        try:
+            ctrl.step(state)
+        except PlannerError:
+            # step() already persisted the interrupted status and summary;
+            # swallow so the CLI exits cleanly, matching run()'s behavior.
+            pass
         save_state(state)
         generate_all(state)
         print(f"Run status: {state.run.status.value}")

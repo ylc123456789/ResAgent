@@ -7,7 +7,7 @@ Locks in behavior for the fixes made on the readability-cleanup branch:
 """
 
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 
 import pytest
@@ -143,3 +143,64 @@ def test_explicit_finish_does_not_consume_api_budget(tmp_path):
 
     assert state.run.status == RunStatus.completed
     assert state.budget.api_calls_used == 0
+
+
+def test_step_resumes_interrupted_run_to_running(tmp_path, monkeypatch):
+    from resagent.models import RunStatus
+    from resagent.persistence.state import load_state, save_state
+
+    cfg_path = _write_config(tmp_path)
+    cfg = load_config(str(cfg_path))
+    state = init_run(goal="Goal", workspace_root=str(tmp_path), config=cfg)
+    run_id = state.run.run_id
+    state.run.status = RunStatus.interrupted
+    save_state(state)
+
+    monkeypatch.setattr(sys, "argv", [
+        "resagent", "step", "--workspace", str(tmp_path),
+        "--run-id", run_id, "--mock", "--config", str(cfg_path),
+    ])
+    with redirect_stdout(StringIO()):
+        cli.main()
+
+    after = load_state(str(tmp_path), run_id)
+    assert after.run.status.value == "running"
+
+
+def test_step_cli_no_traceback_on_planner_error(tmp_path, monkeypatch):
+    from resagent.controller import Controller
+    from resagent.controller.planner import PlannerError
+    from resagent.adapters.expagent import ExpAgentAdapter
+    from resagent.adapters.codingagent import CodingAgentAdapter
+    from resagent.adapters.reproagent import ReproAgentAdapter
+    from resagent.persistence.state import load_state
+    from tests.v2_registry import make_registry
+
+    class FailingPlanner:
+        def choose_action(self, state):
+            raise PlannerError("no valid action after retries")
+
+    def fake_build_controller(cfg, mock=False):
+        return Controller(
+            FailingPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()),
+            CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+        )
+
+    state = init_run(goal="Goal", workspace_root=str(tmp_path))
+    run_id = state.run.run_id
+
+    monkeypatch.setattr("resagent.main.build_controller", fake_build_controller)
+    monkeypatch.setattr(sys, "argv", [
+        "resagent", "step", "--workspace", str(tmp_path),
+        "--run-id", run_id, "--mock",
+    ])
+    out = StringIO()
+    err = StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        cli.main()  # must not raise nor print a traceback
+
+    after = load_state(str(tmp_path), run_id)
+    assert after.run.status.value == "interrupted"
+    assert "controller LLM produced no usable" in after.current_summary
+    assert "Traceback" not in out.getvalue()
+    assert "Traceback" not in err.getvalue()
