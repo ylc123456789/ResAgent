@@ -10,7 +10,7 @@ from io import StringIO
 import resagent
 import resagent.main as cli
 from resagent.models import AgentTask, Artifact, Observation, ResearchRun, ResearchState
-from resagent.controller.prompts import CHAT_SYSTEM, CONTROLLER_SYSTEM, FAILURE_CLASSIFIER, SUMMARY_PROMPT
+from resagent.controller.prompts import CHAT_SYSTEM, CONTROLLER_SYSTEM, FAILURE_CLASSIFIER
 from resagent.persistence.workspace import WorkspaceLayout
 
 
@@ -41,11 +41,9 @@ def test_prompt_contracts() -> None:
     assert [_sha256(prompt) for prompt in (
         CHAT_SYSTEM,
         FAILURE_CLASSIFIER,
-        SUMMARY_PROMPT,
     )] == [
         "431c36ee84bbf6c395036be322e912bab670a7615f8fc3ec506c1bb77f0fab75",
         "2a1a5e2b70975c28a778d2b17a7f092f028c4f133a39590bfd905dbc991f8936",
-        "0ef333277a243b417592aa4a92978ce8f2811854cb0a40477bdf4ab615e2c2e5",
     ]
 
 

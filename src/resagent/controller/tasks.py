@@ -19,7 +19,7 @@ def task_fingerprint(
     executor: Producer, capability: str, payload: dict[str, Any],
 ) -> str:
     """Return a stable semantic identity for deduplicating planned work."""
-    ignored = {"description", "supersedes_task_id", "_retry_scheduled"}
+    ignored = {"description", "_retry_scheduled"}
     normalized = {
         key: payload[key] for key in sorted(payload)
         if key not in ignored and payload[key] not in ("", [], None)

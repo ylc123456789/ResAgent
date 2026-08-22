@@ -33,9 +33,6 @@ class WorkspaceConfig:
 @dataclass
 class PolicyConfig:
     """Policy knobs: retries, confirmation gates, repro mirror/cache."""
-    max_task_retries: int = 2
-    confirm_before_external_runs: bool = True
-    confirm_before_long_tasks: bool = True
     shared_workspace: str = "auto"  # "auto" | "always" | "never"
     repro_mirror_profile: str = "none"  # "none" | "cn" | "autodl"
     repro_dataset_cache: str = ""       # e.g. /root/autodl-tmp/datasets (server)
@@ -51,7 +48,6 @@ class ResourcesConfig:
     """
     root: str = ""                       # resource root (manifests/locks/envs)
     reuse_mode: str = "legacy"           # "legacy" | "content_addressed"
-    cleanup_enabled: bool = False
     cleanup_max_bytes: int = 0
     cleanup_min_unused_days: int = 30
 
@@ -151,13 +147,6 @@ def _apply_yaml(cfg: Config, path: str) -> None:
 
     pol = data.get("policy", {})
     if isinstance(pol, dict):
-        cfg.policy.max_task_retries = pol.get("max_task_retries", cfg.policy.max_task_retries)
-        cfg.policy.confirm_before_external_runs = pol.get(
-            "confirm_before_external_runs", cfg.policy.confirm_before_external_runs
-        )
-        cfg.policy.confirm_before_long_tasks = pol.get(
-            "confirm_before_long_tasks", cfg.policy.confirm_before_long_tasks
-        )
         cfg.policy.shared_workspace = pol.get(
             "shared_workspace", cfg.policy.shared_workspace
         )
@@ -181,7 +170,6 @@ def _apply_yaml(cfg: Config, path: str) -> None:
         cfg.resources.reuse_mode = res.get("reuse_mode", cfg.resources.reuse_mode)
         cleanup = res.get("cleanup", {})
         if isinstance(cleanup, dict):
-            cfg.resources.cleanup_enabled = cleanup.get("enabled", cfg.resources.cleanup_enabled)
             cfg.resources.cleanup_max_bytes = cleanup.get("max_bytes", cfg.resources.cleanup_max_bytes)
             cfg.resources.cleanup_min_unused_days = cleanup.get(
                 "min_unused_days", cfg.resources.cleanup_min_unused_days

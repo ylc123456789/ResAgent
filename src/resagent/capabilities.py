@@ -251,9 +251,6 @@ class CapabilityRegistry:
                 lines.append(f"- {capability} -> {producer.value} (module: {owner})")
         return "\n".join(lines)
 
-    def available(self) -> list[ExpertCard]:
-        return [c for c in self.cards.values() if c.status == "available"]
-
     def router_descriptions(self) -> str:
         return "\n".join(c.router_line() for c in self.cards.values())
 

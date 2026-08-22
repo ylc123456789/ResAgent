@@ -94,21 +94,6 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
 
 # ── Adapter context (for downstream module calls) ─────────────────────────────
 
-def build_expagent_context(state: ResearchState) -> dict:
-    """Build AdvisorContext-like dict for ExpAgent from current state."""
-    return {
-        "situation": state.current_summary or state.run.research_goal,
-        "artifacts": [
-            {"id": a.id, "type": a.type.value, "summary": a.summary}
-            for a in state.artifacts[-20:]  # last 20 only
-        ],
-        "existing_plan": [
-            {"id": t.id, "kind": t.kind.value, "status": t.status.value, "priority": t.priority.value}
-            for t in state.tasks
-        ],
-    }
-
-
 def build_codingagent_context(task: AgentTask) -> dict:
     """Extract CodeTaskSpec-like dict from an AgentTask."""
     task_goal = _goal_with_dependency_artifacts(

@@ -207,15 +207,3 @@ Output as JSON:
   "recommended_action": "retry|call_coding_agent|call_exp_agent|ask_user|investigate"
 }
 """
-
-SUMMARY_PROMPT = """\
-Write a concise summary of this research run. Include:
-
-1. What the research goal was
-2. What was accomplished (key results and artifacts)
-3. What remains to be done
-4. Key decisions made and why
-5. Any blockers or open questions
-
-Keep it under 500 words. Be specific. Reference artifact IDs and task IDs.
-"""

@@ -96,11 +96,6 @@ class ControllerActions:
         artifact = result["artifact"]
         state.register_artifact(artifact, task)
         for spawned in result.get("tasks", []):
-            supersedes = spawned.input.get("supersedes_task_id", "")
-            previous = state.find_task(supersedes) if supersedes else None
-            if previous is not None and previous.status in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
-                previous.status = TaskStatus.skipped
-                previous.error = f"Superseded by {spawned.id}."
             state.tasks.append(spawned)
 
         issues = result["raw"].get("_normalization_issues", [])

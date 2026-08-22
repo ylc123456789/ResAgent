@@ -5,7 +5,7 @@ from resagent.models import (
     Observation, ArtifactType, Producer, AgentKind, ActionName,
 )
 from resagent.context import (
-    build_controller_context, build_expagent_context,
+    build_controller_context,
     build_codingagent_context, build_reproagent_context,
 )
 
@@ -54,13 +54,6 @@ class TestControllerContext:
 
 
 class TestAdapterContext:
-    def test_expagent_context(self):
-        state = _make_state()
-        ctx = build_expagent_context(state)
-        assert "situation" in ctx
-        assert "artifacts" in ctx
-        assert "existing_plan" in ctx
-
     def test_codingagent_context(self):
         task = AgentTask(
             id="t1", agent=Producer.CodingAgent,

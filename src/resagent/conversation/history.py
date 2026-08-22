@@ -9,7 +9,8 @@ Layout:
         experts/            # per-consult expert outputs
         briefs/             # archived research briefs
 
-The event log is authoritative: the snapshot can always be rebuilt from it.
+The event log is the append-only source of truth; the snapshot is written
+alongside it.
 """
 
 from __future__ import annotations
@@ -83,17 +84,6 @@ def load_conversation(workspace_root: str, conversation_id: str,
     return ConversationState.model_validate(payload)
 
 
-def list_conversations(workspace_root: str, dirname: str = "conversations") -> list[str]:
-    root = conversations_root(workspace_root, dirname)
-    if not root.exists():
-        return []
-    return sorted(
-        (d.name for d in root.iterdir()
-         if d.is_dir() and _snapshot_path(d).exists()),
-        reverse=True,
-    )
-
-
 # ── events ────────────────────────────────────────────────────────────────────
 
 def append_event(
@@ -128,22 +118,3 @@ def read_events(workspace_root: str, conversation_id: str,
         if line:
             events.append(ConversationEvent.model_validate_json(line))
     return events
-
-
-def rebuild_from_events(workspace_root: str, conversation_id: str,
-                        dirname: str = "conversations") -> ConversationState | None:
-    """Rebuild ConversationState purely from the event log."""
-    events = read_events(workspace_root, conversation_id, dirname)
-    if not events:
-        return None
-
-    conv = ConversationState(
-        conversation_id=conversation_id,
-        workspace_root=str(Path(workspace_root).resolve()),
-        created_at=events[0].ts,
-        updated_at=events[-1].ts,
-    )
-    for event in events:
-        conv.event_count = event.seq
-        conv.apply_patch(event.payload.get("state_patch", {}))
-    return conv

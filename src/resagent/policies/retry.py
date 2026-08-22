@@ -17,11 +17,6 @@ class RetryPolicy:
             return False
         return classify_transient(error).get("category") == "transient"
 
-    def can_retry(self, task: AgentTask) -> bool:
-        """Check if task still has retry budget."""
-        return len(task.attempts) < self.max_retries
-
-
 def classify_transient(error: str) -> dict:
     """Deterministic classification of known transport/network errors.
 
