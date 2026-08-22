@@ -17,6 +17,7 @@ from resagent.conversation import (
     load_conversation,
     new_conversation,
     read_events,
+    rebuild_from_events,
 )
 from resagent.orchestrator import build_controller, init_run
 from resagent.persistence.state import load_state
@@ -226,6 +227,9 @@ def test_chat_resume(stack):
     reloaded = load_conversation(conv.workspace_root, conv.conversation_id)
     assert reloaded is not None
     assert reloaded.event_count == conv.event_count
+
+    rebuilt = rebuild_from_events(conv.workspace_root, conv.conversation_id)
+    assert rebuilt.event_count == conv.event_count
 
 
 # ── slash commands (deterministic, no LLM) ────────────────────────────────────

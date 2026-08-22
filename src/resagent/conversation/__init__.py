@@ -8,14 +8,16 @@ from .history import (
     append_event,
     conversation_dir,
     conversations_root,
+    list_conversations,
     load_conversation,
     new_conversation,
     read_events,
+    rebuild_from_events,
     save_conversation,
 )
 
 __all__ = [
-    "append_event", "conversation_dir", "conversations_root",
-    "load_conversation", "new_conversation", "read_events",
+    "append_event", "conversation_dir", "conversations_root", "list_conversations",
+    "load_conversation", "new_conversation", "read_events", "rebuild_from_events",
     "save_conversation",
 ]
