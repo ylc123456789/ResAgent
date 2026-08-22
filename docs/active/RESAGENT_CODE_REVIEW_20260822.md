@@ -133,7 +133,11 @@ resagent run/answer
 | `0021620` | refactor: capability 词汇表防漂移守卫（R2） |
 | `1611102` | fix: 修 6 个缺陷（R3） |
 | `351cd07` | test: 回归测试（R4） |
-| （待提交） | fix: step 单步语义、恢复会话恢复接口、env_id 校验、api 计数（第二轮 R1-R4） |
+| `60c750d` | fix: step 单步语义、env_id 校验、api 计数 |
+| `d7ea08f` | restore: 恢复会话重建与会话列表公共接口 |
+| `e626d90` | test: 第二轮修复的回归测试 |
+| `d2383fe` | docs: 记录执行结果、延期项与测试结果 |
+| `2c91818` | fix: step 恢复 interrupted run 并受控处理 PlannerError |
 
 ### 8.2 已处理
 
@@ -142,6 +146,7 @@ resagent run/answer
 - **6 个缺陷**：`step` 静默 no-op、CLI 路径层级（env 压过 CLI）、planner 对非法 action 默认 finish、coding adapter 返回空 workspace_path、`/use` `/status` 丢弃 state_patch、chat 路径不生成报告。
 - **第二轮修正**：
   - `step` 改为直接 `ctrl.step(state)`（非终态保持 running，不再被 `run_loop` 标记 interrupted）。
+  - `step` 执行前恢复 interrupted run，并将 PlannerError 收敛为已持久化的受控中断，不向 CLI 泄漏 traceback。
   - 恢复 `rebuild_from_events` / `list_conversations` 公开接口 + 测试 + 文档（首轮误判为死代码，实际是恢复路径）。
   - 统一 `_validate_env_id`：`read_manifest` / `acquire_lease` / `_lifecycle_lock_path` / `cleanup._write_manifest` 复用，拒绝空值、绝对路径、`..`、路径分隔符。
   - `api_calls_used` 只在真正调用 planner 时计数；显式 finish、retry 不计数。
@@ -153,8 +158,8 @@ resagent run/answer
 
 ### 8.4 测试结果
 
-- 全量：**224 passed**（修改前 220）。
-- 新增回归：`step` 推进且保持 running、planner fail-closed、generate_all、env_id 路径穿越、显式 finish 不耗 API 预算。
+- 全量：**226 passed**（修改前 220）。
+- 新增回归：`step` 推进且保持 running、interrupted run 单步恢复、PlannerError 受控退出、planner fail-closed、generate_all、env_id 路径穿越、显式 finish 不耗 API 预算。
 - 恢复：`rebuild_from_events` / `list_conversations` 相关测试。
 - `git diff --check` 通过；`import resagent` 通过；无新增依赖。
 
