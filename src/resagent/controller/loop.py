@@ -66,9 +66,16 @@ class Controller(ControllerActions):
         # It remains pending until any required result analysis is complete.
         finish_directive = apply_finish_control(state)
         if finish_directive is not None and validate_finish(state).allowed:
+            previous_summary = state.current_summary.strip()
+            closure_note = "Run closed after an explicit user request."
+            summary = (
+                f"{previous_summary}\n\n## Closure\n{closure_note}"
+                if previous_summary
+                else closure_note
+            )
             planned = PlannedAction(
                 ActionName.finish,
-                {"summary": "Run finished by explicit user request."},
+                {"summary": summary},
                 reason="The user explicitly requested finish.",
             )
             state.decisions.append(DecisionRecord(

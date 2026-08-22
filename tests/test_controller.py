@@ -281,6 +281,63 @@ def test_explicit_finish_preserves_required_result_analysis(tmp_path):
     assert directive.handled is False
 
 
+def test_explicit_finish_preserves_current_summary(tmp_path):
+    from resagent.models import Artifact, ArtifactType, DirectiveKind, RunStatus
+    from resagent.persistence.state import append_user_directive
+
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("planner must not run for explicit finish")
+
+    state = init_state("finish-summary", str(tmp_path), "Goal")
+    state.current_summary = "Cosine outperformed constant LR in the bounded run."
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.report, producer=Producer.ResAgent,
+        path="result.md",
+    ))
+    directive = append_user_directive(state, "收口")
+    ctrl = Controller(
+        PanicPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()),
+        CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+    )
+
+    obs = ctrl.step(state)
+
+    assert directive.kind == DirectiveKind.control
+    assert directive.handled is True
+    assert state.run.status == RunStatus.completed
+    assert state.current_summary == obs.detail
+    assert "Cosine outperformed constant LR" in state.current_summary
+    assert "## Closure" in state.current_summary
+    assert "explicit user request" in state.current_summary
+
+
+def test_explicit_finish_without_summary_uses_closure_note(tmp_path):
+    from resagent.models import Artifact, ArtifactType, RunStatus
+    from resagent.persistence.state import append_user_directive
+
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("planner must not run for explicit finish")
+
+    state = init_state("finish-empty-summary", str(tmp_path), "Goal")
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.report, producer=Producer.ResAgent,
+        path="result.md",
+    ))
+    append_user_directive(state, "finish now")
+    ctrl = Controller(
+        PanicPlanner(), ExpAgentAdapter(mock=True, registry=make_registry()),
+        CodingAgentAdapter(mock=True), ReproAgentAdapter(mock=True),
+    )
+
+    obs = ctrl.step(state)
+
+    assert obs.result == "ok"
+    assert state.run.status == RunStatus.completed
+    assert state.current_summary == "Run closed after an explicit user request."
+
+
 def test_paused_run_never_calls_planner(tmp_path):
     from resagent.models import PendingQuestion, RunStatus
 

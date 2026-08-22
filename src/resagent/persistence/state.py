@@ -26,7 +26,7 @@ _CONFIRMATION_PHRASE = re.compile(
 )
 _FINISH_CONTROL = re.compile(
     r"\b(finish|finalize|wrap\s*up|stop)\b|"
-    r"收尾|结束|停止|不要再?(?:继续|运行|跑)|不再(?:继续|运行|跑)",
+    r"收口|收尾|结束|停止|不要再?(?:继续|运行|跑)|不再(?:继续|运行|跑)",
     re.IGNORECASE,
 )
 _PLAN_REVISION = re.compile(
