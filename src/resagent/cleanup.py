@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .resources import (
+    _validate_env_id,
     environment_lifecycle_lock,
     iter_manifests,
     lifecycle_lock_alive,
@@ -265,6 +266,7 @@ def _manager_deleter(manager: str, reproagent_path: str, codingagent_path: str):
 
 
 def _write_manifest(root: Path, env_id: str, manifest: dict) -> None:
+    _validate_env_id(env_id)
     path = root / "environments" / env_id / "manifest.json"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(

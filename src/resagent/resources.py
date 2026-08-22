@@ -200,8 +200,26 @@ def register_task_resources(
 _CERT_RANK = {"": 0, "none": 0, "verification": 1, "experiment": 2}
 
 
+def _validate_env_id(env_id: str) -> None:
+    """Reject environment ids that could escape the environments directory.
+
+    A legal env id is a single, non-empty path component: no empty value, no
+    absolute path, no "..", and no separators (either style). Every path built
+    from an env id must go through this check.
+    """
+    if (
+        not env_id
+        or env_id in {".", ".."}
+        or "/" in env_id
+        or "\\" in env_id
+        or os.path.isabs(env_id)
+    ):
+        raise ValueError(f"invalid environment id: {env_id!r}")
+
+
 def read_manifest(resource_root: str, env_id: str) -> dict | None:
     """Read one ENVIRONMENT_MANIFEST_V1; None when absent or unreadable."""
+    _validate_env_id(env_id)
     path = Path(resource_root) / "environments" / env_id / "manifest.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -211,8 +229,7 @@ def read_manifest(resource_root: str, env_id: str) -> dict | None:
 
 
 def _lifecycle_lock_path(resource_root: str | Path, env_id: str) -> Path:
-    if not env_id or Path(env_id).name != env_id:
-        raise ValueError(f"invalid environment id: {env_id!r}")
+    _validate_env_id(env_id)
     return Path(resource_root) / "locks" / "lifecycle" / f"{env_id}.lock"
 
 
@@ -381,6 +398,7 @@ def acquire_lease(
     """Write a lease only while the environment is available for use."""
     if not resource_root or not env_id:
         return ""
+    _validate_env_id(env_id)
     usage_dir = Path(resource_root) / "environments" / env_id / "usage"
     now = datetime.now(timezone.utc).isoformat()
     lease = {

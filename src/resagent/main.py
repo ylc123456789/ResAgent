@@ -165,7 +165,7 @@ def _dispatch(args):
             print(f"No run found: {args.workspace}/{args.run_id}")
             sys.exit(1)
         ctrl = build_controller(cfg, mock=mock)
-        state = run_loop(state, ctrl, max_steps=1)
+        ctrl.step(state)
         save_state(state)
         generate_all(state)
         print(f"Run status: {state.run.status.value}")

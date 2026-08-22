@@ -87,7 +87,6 @@ class Controller(ControllerActions):
             ))
             observation = self._execute(state, planned)
             state.observations.append(observation)
-            state.budget.api_calls_used += 1
             if observation.result == "ok":
                 finish_directive.handled = True
                 state.run.status = RunStatus.completed
@@ -98,8 +97,13 @@ class Controller(ControllerActions):
         # already present in context; controls are handled above.
         ensure_directive_replan(state)
 
+        planned = None
+        planner_called = False
         try:
-            planned = self._next_retry_action(state) or self.planner.choose_action(state)
+            planned = self._next_retry_action(state)
+            if planned is None:
+                planned = self.planner.choose_action(state)
+                planner_called = True
         except PlannerError:
             # Controlled, resumable stop — never let a transient LLM outage
             # kill a long run with an unhandled traceback.
@@ -119,7 +123,8 @@ class Controller(ControllerActions):
         ))
         observation = self._execute(state, planned)
         state.observations.append(observation)
-        state.budget.api_calls_used += 1
+        if planner_called:
+            state.budget.api_calls_used += 1
 
         if observation.action == ActionName.finish and observation.result == "ok":
             state.run.status = RunStatus.completed
