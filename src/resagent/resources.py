@@ -172,10 +172,11 @@ def register_task_resources(
         ))
 
     if isinstance(environment, dict) and environment.get("name"):
+        environment_id = _environment_id_from_binding(environment)
         repo_ref = task.project_ref or _repo_id_for_task(state, task)
         upsert_resource(state, ResourceRef(
             kind="environment",
-            id=str(environment.get("name", "")),
+            id=environment_id,
             path=str(environment.get("path", "")),
             repo=repo_ref,
             certification=str(environment.get("certification", "")),
@@ -193,6 +194,25 @@ def register_task_resources(
                 "audit_artifact": str(environment.get("audit_artifact", "")),
             },
         ))
+
+
+def _environment_id_from_binding(environment: dict) -> str:
+    """Return the logical id, recovering it from old content-addressed cards."""
+    explicit = str(environment.get("env_id", "")).strip()
+    if explicit:
+        return explicit
+
+    manifest_path = str(environment.get("manifest_path", "")).strip()
+    if manifest_path:
+        try:
+            manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+            recovered = str(manifest.get("env_id", "")).strip()
+            if recovered:
+                return recovered
+        except (OSError, ValueError, TypeError):
+            pass
+
+    return str(environment.get("name", ""))
 
 
 # ── M2: content-addressed environment selection (contracts/ENVIRONMENT_*_V1) ──

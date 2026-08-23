@@ -15,9 +15,10 @@ from resagent.models import (
     TaskStatus,
 )
 from resagent.persistence.state import init_state
+from resagent.persistence.workspace import WorkspaceLayout
 from resagent.resources import (
-    acquire_lease, iter_manifests, read_manifest, register_task_resources,
-    release_lease, select_environment_manifest,
+    acquire_lease, iter_manifests, materialize_task_bindings, read_manifest,
+    register_task_resources, release_lease, select_environment_manifest,
 )
 from resagent.adapters.codingagent import CodingAgentAdapter
 from resagent.adapters.expagent import ExpAgentAdapter
@@ -137,7 +138,8 @@ def test_register_recovers_m2_fields(tmp_path):
     card.write_text(
         "bindings:\n"
         "  environment:\n"
-        "    name: resenv_x_111111111111\n"
+        "    name: /envs/resenv_x_111111111111\n"
+        "    env_id: resenv_x_111111111111\n"
         "    certification: experiment\n"
         "    manifest_path: /root/environments/resenv_x_111111111111/manifest.json\n"
         "    prefix: /envs/resenv_x_111111111111\n"
@@ -151,11 +153,49 @@ def test_register_recovers_m2_fields(tmp_path):
     state.tasks.append(task)
     register_task_resources(state, task, str(card))
     env = next(r for r in state.resources if r.kind == "environment")
+    assert env.id == "resenv_x_111111111111"
     assert env.manifest_path.endswith("manifest.json")
     assert env.prefix == "/envs/resenv_x_111111111111"
     assert env.spec_fingerprint == "a" * 64
     assert env.manager == "ReproAgent"
     assert env.last_used_at
+
+    retry = AgentTask(
+        id="task_002", agent=Producer.CodingAgent,
+        kind=AgentKind.coding_task, project_ref="proj",
+    )
+    state.tasks.append(retry)
+    materialize_task_bindings(
+        state, retry, WorkspaceLayout(str(tmp_path), state.run.run_id),
+    )
+    assert retry.input["env_name"] == "resenv_x_111111111111"
+    assert retry.input["env_policy"] == "reuse_only"
+
+
+def test_register_recovers_env_id_from_pre_contract_card(tmp_path):
+    root = tmp_path / "resources"
+    manifest = _manifest("resenv_old_111111111111", "/repo/a")
+    _write_manifest(root, manifest)
+    manifest_file = root / "environments" / manifest["env_id"] / "manifest.json"
+    card = tmp_path / "session.yaml"
+    card.write_text(
+        "bindings:\n"
+        "  environment:\n"
+        f"    name: {manifest['prefix']}\n"
+        f"    prefix: {manifest['prefix']}\n"
+        f"    manifest_path: {manifest_file}\n",
+        encoding="utf-8",
+    )
+    state = init_state("m2-old-card", str(tmp_path), "goal")
+    task = AgentTask(id="task_001", agent=Producer.CodingAgent,
+                     kind=AgentKind.coding_task, project_ref="proj")
+    state.tasks.append(task)
+
+    register_task_resources(state, task, str(card))
+
+    env = next(r for r in state.resources if r.kind == "environment")
+    assert env.id == manifest["env_id"]
+    assert env.prefix == manifest["prefix"]
 
 
 def test_register_tolerates_legacy_card(tmp_path):
