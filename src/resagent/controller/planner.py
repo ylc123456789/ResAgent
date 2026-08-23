@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..models import ResearchState, ActionName
+from .contracts import allowed_action_candidates
 from .prompts import render_controller_system
 from ..context.builder import build_controller_context
 
@@ -65,7 +66,9 @@ class Planner:
         for attempt in range(1, self.MAX_LLM_ATTEMPTS + 1):
             try:
                 raw = self._call_llm(context)
-                return self._parse_response(raw)
+                planned = self._parse_response(raw)
+                self._validate_candidate(state, planned)
+                return planned
             except Exception as exc:
                 last_error = exc
                 if attempt < self.MAX_LLM_ATTEMPTS:
@@ -74,6 +77,20 @@ class Planner:
             f"controller LLM produced no usable action after "
             f"{self.MAX_LLM_ATTEMPTS} attempts: {last_error}"
         ) from last_error
+
+    @staticmethod
+    def _validate_candidate(state: ResearchState, planned: PlannedAction) -> None:
+        """Reject actions outside the deterministic runnable-action set."""
+        for candidate in allowed_action_candidates(state):
+            if candidate["action"] != planned.action.value:
+                continue
+            task_id = candidate.get("task_id")
+            if task_id is None or task_id == planned.params.get("task_id"):
+                return
+        raise ValueError(
+            f"action is not currently runnable: {planned.action.value} "
+            f"task_id={planned.params.get('task_id', '')!r}"
+        )
 
     def classify_failure(self, task_id: str, error_message: str) -> dict:
         """Classify a task failure. Returns category dict."""

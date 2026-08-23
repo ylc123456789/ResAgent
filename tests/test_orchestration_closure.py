@@ -509,7 +509,10 @@ def test_planner_retries_transient_llm_failures(tmp_path, monkeypatch):
     """A transient empty/unparseable LLM response is retried, not fatal."""
     planner = Planner(mock=False)
     calls = {"n": 0}
-    good = '{"analysis": "a", "action": "finish", "params": {}, "reason": "done"}'
+    good = (
+        '{"analysis":"a", "action":"call_exp_agent", '
+        '"params":{"task_id":"task_001"}, "reason":"consult"}'
+    )
 
     def flaky(context):
         calls["n"] += 1
@@ -520,9 +523,15 @@ def test_planner_retries_transient_llm_failures(tmp_path, monkeypatch):
     monkeypatch.setattr(planner, "_call_llm", flaky)
     monkeypatch.setattr("time.sleep", lambda _s: None)
     state = init_state("planner-retry", str(tmp_path), "goal")
+    state.tasks.append(AgentTask(
+        id="task_001",
+        agent=Producer.ExpAgent,
+        kind=AgentKind.advise,
+        status=TaskStatus.pending,
+    ))
 
     action = planner.choose_action(state)
-    assert action.action == ActionName.finish
+    assert action.action == ActionName.call_exp_agent
     assert calls["n"] == 3
 
 
@@ -537,6 +546,23 @@ def test_planner_fails_closed_after_retry_exhaustion(tmp_path, monkeypatch):
     state = init_state("planner-outage", str(tmp_path), "goal")
 
     with pytest.raises(PlannerError):
+        planner.choose_action(state)
+
+
+def test_planner_rejects_action_outside_runnable_candidates(tmp_path, monkeypatch):
+    planner = Planner(mock=False)
+    monkeypatch.setattr(
+        planner,
+        "_call_llm",
+        lambda _ctx: (
+            '{"analysis":"retry", "action":"call_coding_agent", '
+            '"params":{"task_id":"missing"}, "reason":"retry"}'
+        ),
+    )
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    state = init_state("planner-candidates", str(tmp_path), "goal")
+
+    with pytest.raises(PlannerError, match="not currently runnable"):
         planner.choose_action(state)
 
 

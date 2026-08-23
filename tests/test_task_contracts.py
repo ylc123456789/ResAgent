@@ -1,13 +1,14 @@
 """Contract tests for V2 capability routing and run lifecycle invariants."""
 
 import textwrap
+from datetime import datetime, timezone
 
 import pytest
 
 from resagent.capabilities import CapabilityError, CapabilityRegistry
 from resagent.config import Config
 from resagent.models import (
-    ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Observation,
+    ActionName, AgentKind, AgentTask, Artifact, ArtifactType, Attempt, Observation,
     Producer, ResearchRun, ResearchState, RunStatus, TaskStatus,
 )
 from resagent.controller.contracts import (
@@ -30,6 +31,27 @@ def _experiment(task_id="task_001", status=TaskStatus.completed) -> AgentTask:
         capability="execute_experiment", required=True, status=status,
         artifacts=["a1"],
     )
+
+
+def test_exhausted_operator_task_is_not_runnable(tmp_path):
+    state = _state(tmp_path)
+    task = AgentTask(
+        id="task_001",
+        agent=Producer.CodingAgent,
+        kind=AgentKind.coding_task,
+        capability="modify_code",
+        status=TaskStatus.blocked,
+        attempts=[
+            Attempt(attempt_number=1, started_at=datetime.now(timezone.utc)),
+            Attempt(attempt_number=2, started_at=datetime.now(timezone.utc)),
+        ],
+    )
+    state.tasks.append(task)
+
+    candidates = allowed_action_candidates(state)
+
+    assert {"action": "call_coding_agent", "task_id": task.id} not in candidates
+    assert {"action": "ask_user"} in candidates
 
 
 # ── capability routing ──────────────────────────────────────────────────────

@@ -328,6 +328,8 @@ def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
     for task in state.tasks:
         if task.status not in (TaskStatus.pending, TaskStatus.failed, TaskStatus.blocked):
             continue
+        if task_attempt_limit_reached(state, task):
+            continue
         if not dependencies_satisfied(task, state):
             continue
         action = (
@@ -342,6 +344,15 @@ def allowed_action_candidates(state: ResearchState) -> list[dict[str, Any]]:
     if validate_finish(state).allowed:
         candidates.append({"action": ActionName.finish.value})
     return candidates
+
+
+def task_attempt_limit_reached(state: ResearchState, task: AgentTask) -> bool:
+    """Return whether an operator task has exhausted its execution attempts."""
+    return (
+        task.agent in {Producer.CodingAgent, Producer.ReproAgent}
+        and task.status in {TaskStatus.failed, TaskStatus.blocked}
+        and len(task.attempts) >= state.budget.max_task_retries
+    )
 
 
 def validate_finish(state: ResearchState) -> FinishCheck:

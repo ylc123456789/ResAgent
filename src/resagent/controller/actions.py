@@ -11,7 +11,8 @@ from ..models import (
 from .planner import PlannedAction
 from ..policies.retry import RetryPolicy, classify_transient
 from .contracts import (
-    dependencies_satisfied, ensure_analysis_coverage, validate_finish,
+    dependencies_satisfied, ensure_analysis_coverage,
+    task_attempt_limit_reached, validate_finish,
 )
 from ..persistence.workspace import WorkspaceLayout
 from ..resources import (
@@ -328,6 +329,17 @@ class ControllerActions:
                 action=planned.action,
                 result="error",
                 detail=f"Task {task_id} belongs to {task.agent.value}, not {expected_agent.value}.",
+            )
+        if task_attempt_limit_reached(state, task):
+            return Observation(
+                action=planned.action,
+                result="error",
+                detail=(
+                    f"Task {task_id} exhausted its "
+                    f"{state.budget.max_task_retries}-attempt limit. "
+                    "Ask the user or revise the plan instead of retrying it."
+                ),
+                task_ids=[task.id],
             )
         if not dependencies_satisfied(task, state):
             waiting = [
