@@ -195,7 +195,6 @@ class ExpAgentAdapter:
             "confidence": "medium",
             "conclusion": None,  # explanation-style response (E1 schema relaxation)
             "evidence": [],
-            "experiment_plan": None,
             "recommended_actions": [],
             "risks": [],
             "needs_user_input": [],
@@ -324,7 +323,6 @@ class ExpAgentAdapter:
                 "rationale": "Mock: need to establish baselines before comparisons.",
             },
             "evidence": [],
-            "experiment_plan": None,
             "analysis_required": True,
             "recommended_actions": [
                 {
@@ -415,7 +413,6 @@ def _map_artifact_type(t: str) -> str:
         "log": "run_log",
         "report": "other",
         "scientific_decision": "other",
-        "experiment_plan": "other",
     }
     return mapping.get(t, "other")
 

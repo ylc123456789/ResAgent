@@ -42,7 +42,6 @@ class TaskPriority(str, Enum):
 class ArtifactType(str, Enum):
     """Type/category of an artifact."""
     scientific_decision = "scientific_decision"
-    experiment_plan = "experiment_plan"
     code_patch = "code_patch"
     repro_result = "repro_result"
     log = "log"
