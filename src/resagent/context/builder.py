@@ -94,20 +94,21 @@ def build_controller_context(state: ResearchState, model: str | None = None) -> 
 
 # ── Adapter context (for downstream module calls) ─────────────────────────────
 
+def _as_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return list(value)
+
+
 def build_codingagent_context(task: AgentTask) -> dict:
     """Extract CodeTaskSpec-like dict from an AgentTask."""
     task_goal = _goal_with_dependency_artifacts(
         task.input.get("task_goal", ""), task.input.get("input_artifacts", []),
     )
-    def _as_list(v):
-        if v is None:
-            return []
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            return [v] if v.strip() else []
-        return list(v)
-
     return {
         "workspace_path": task.input.get("workspace_path")
                        or task.input.get("repo_path", ""),
@@ -157,6 +158,9 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "codingagent_path": task.input.get("codingagent_path", ""),
         "dataset_cache_dir": task.input.get("dataset_cache_dir", ""),
         "requires_gpu": bool(task.input.get("requires_gpu", False)),
+        "expected_metrics": _as_list(task.input.get("expected_metrics", [])),
+        "expected_artifacts": _as_list(task.input.get("expected_artifacts", [])),
+        "success_criteria": _as_list(task.input.get("success_criteria", [])),
         "project_ref": task.project_ref,
     }
 

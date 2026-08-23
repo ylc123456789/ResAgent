@@ -201,6 +201,9 @@ class ReproAgentAdapter:
             reuse_mode=self.reuse_mode,
             project_ref=spec.get("project_ref", ""),
             requires_gpu=bool(spec.get("requires_gpu", False)),
+            expected_metrics=spec.get("expected_metrics", []),
+            expected_artifacts=spec.get("expected_artifacts", []),
+            success_criteria=spec.get("success_criteria", []),
         )
 
         start = time.time()

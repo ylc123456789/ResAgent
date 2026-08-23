@@ -215,6 +215,7 @@ def _task_input(
             "paper_url": str(action.get("paper_url", "")).strip(),
             "repo_url": str(action.get("repo_url", "")).strip(),
             "expected_metrics": list(action.get("expected_metrics") or []),
+            "expected_artifacts": list(action.get("expected_artifacts") or []),
             "requires_gpu": bool(action.get("requires_gpu", False)),
         })
     elif capability == "analyze_results":
