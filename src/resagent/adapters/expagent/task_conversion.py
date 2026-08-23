@@ -62,6 +62,10 @@ def actions_to_tasks(
             )
             if needs_workspace else ""
         )
+        # Preserve the advisor's action verbatim before ResAgent threads any
+        # runtime binding into it (repo_url below). It is a runtime record, not
+        # a second plan.
+        scientific_action = dict(action)
         # modify_code with no prior workspace: thread the goal's repo URL so the
         # executor can clone the repo itself. The URL is otherwise lost — ExpAgent
         # emits no physical URL and there is no reproduce task to inherit from.
@@ -69,13 +73,15 @@ def actions_to_tasks(
                 and not str(action.get("repo_url", "")).strip()
                 and not workspace_path):
             action = {**action, "repo_url": _extract_repo_url(state.run.research_goal)}
-        task_input = _task_input(action, workspace_path)
+        task_input = _task_input(action, workspace_path, scientific_action=scientific_action)
         # Fingerprint on logical identity only. Physical fields ResAgent resolves
-        # (workspace_path, env) must NOT change the identity across
-        # re-consultations, or a follow-up ExpAgent advisory would re-plan an
-        # already-completed experiment just because its workspace materialized.
+        # (workspace_path, env) and the verbatim action record must NOT change
+        # the identity across re-consultations, or a follow-up ExpAgent advisory
+        # would re-plan an already-completed experiment just because its
+        # workspace materialized.
         logical = dict(task_input)
         logical.pop("workspace_path", None)
+        logical.pop("scientific_action", None)
         logical["project_ref"] = str(action.get("project_ref", "")).strip()
         fingerprint = task_fingerprint(agent, canonical, logical)
         equivalent = state.find_task_by_fingerprint(fingerprint)
@@ -172,13 +178,23 @@ def retire_superseded_actions(
     return retired, issues
 
 
-def _task_input(action: dict, workspace_path: str) -> dict:
-    """Map a flat V2 action onto the AgentTask.input contract."""
+def _task_input(
+    action: dict, workspace_path: str, scientific_action: dict | None = None,
+) -> dict:
+    """Map a flat V2 action onto the AgentTask.input contract.
+
+    ``scientific_action`` is the advisor's action verbatim, kept as a runtime
+    record so future scientific fields survive the flat projection. It is the
+    pre-mutation action (before ResAgent threads runtime bindings).
+    """
     capability = str(action.get("capability", "")).strip()
     objective = str(action.get("objective", "")).strip()
     rationale = str(action.get("rationale", "")).strip()
 
     input_data: dict = {
+        "scientific_action": (
+            scientific_action if scientific_action is not None else dict(action)
+        ),
         "description": rationale,
         "objective": objective,
         "success_criteria": list(action.get("success_criteria") or []),

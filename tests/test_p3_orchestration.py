@@ -138,6 +138,32 @@ def test_reproduce_patch_run_graph_routes_three_tasks(tmp_path):
     assert experiment.depends_on == [coding.id]
 
 
+def test_action_preserved_verbatim_in_task_input(tmp_path):
+    """scientific_action keeps the advisor's action verbatim; ResAgent's
+    inferred runtime bindings stay flat, never nested in the action record."""
+    action = {
+        "action_id": "patch", "capability": "modify_code",
+        "objective": "implement method", "rationale": "implement",
+        "depends_on": [], "project_ref": "project", "required": True,
+        "constraints": ["minimal"], "verify_commands": [], "expected_artifacts": [],
+    }
+    state = init_state(
+        "preserve", str(tmp_path), "patch https://github.com/acme/repo.git",
+    )
+    tasks, issues = actions_to_tasks(
+        [action], state, "decision", 1, registry=make_registry(),
+    )
+
+    assert issues == []
+    assert len(tasks) == 1
+    task = tasks[0]
+    # The advisor's action is preserved verbatim...
+    assert task.input["scientific_action"] == action
+    # ...and ResAgent's inferred repo_url stays a flat field, never nested.
+    assert "repo_url" not in task.input["scientific_action"]
+    assert task.input["repo_url"] == "https://github.com/acme/repo.git"
+
+
 def test_reproduce_experiment_carries_action_repo(tmp_path):
     """In V2 the repo locator comes from the action, not ResAgent guessing."""
     state = init_state("goal-repo", str(tmp_path), "Use some goal text")
