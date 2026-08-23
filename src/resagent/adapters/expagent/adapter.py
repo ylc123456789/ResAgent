@@ -261,6 +261,12 @@ class ExpAgentAdapter:
                 f"Assigned Scientific Task: capability={task.capability or task.kind.value}; "
                 f"action_id={task.action_id or '-'}; goal={_task_goal(task)}"
             )
+            if task.input.get("success_criteria"):
+                parts.append(f"Success Criteria: {task.input['success_criteria']}")
+            if task.input.get("expected_artifacts"):
+                parts.append(
+                    f"Promised Output Artifacts: {task.input['expected_artifacts']}"
+                )
             if task.input.get("input_artifacts"):
                 parts.append(
                     "Use the attached dependency artifacts as the authoritative "

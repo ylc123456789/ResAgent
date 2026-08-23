@@ -38,6 +38,23 @@ def _latest_optional_recommendations(state: ResearchState) -> list[dict]:
         ]
     return []
 
+def _scientific_summary(raw: dict) -> str:
+    """Keep the advisor's latest scientific conclusion in run state."""
+    summary = str(raw.get("summary", "")).strip()
+    conclusion = raw.get("conclusion")
+    if not isinstance(conclusion, dict):
+        return summary
+    status = str(conclusion.get("status", "")).strip()
+    rationale = str(conclusion.get("rationale", "")).strip()
+    if not rationale:
+        return summary
+    conclusion_text = (
+        f"Conclusion ({status}): {rationale}" if status
+        else f"Conclusion: {rationale}"
+    )
+    return f"{summary}\n\n{conclusion_text}" if summary else conclusion_text
+
+
 
 class ControllerActions:
     """Action handlers shared by the public Controller loop."""
@@ -107,6 +124,9 @@ class ControllerActions:
             task.attempts[-1].finished_at = datetime.now(timezone.utc)
             task_ids.insert(0, task.id)
             state.budget.tasks_run += 1
+
+        if task is not None and task.capability == "analyze_results" and not issues:
+            state.current_summary = _scientific_summary(result["raw"])
 
         return Observation(
             action=ActionName.call_exp_agent,

@@ -219,7 +219,10 @@ def _task_input(
             "requires_gpu": bool(action.get("requires_gpu", False)),
         })
     elif capability == "analyze_results":
-        input_data["task_goal"] = objective
+        input_data.update({
+            "task_goal": objective,
+            "expected_artifacts": list(action.get("expected_artifacts") or []),
+        })
     elif capability == "search_literature":
         input_data["task_goal"] = objective
         input_data["search_query"] = str(action.get("search_query", "")).strip()

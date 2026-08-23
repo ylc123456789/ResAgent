@@ -481,6 +481,50 @@ def test_expagent_task_receives_all_dependency_artifacts(tmp_path):
     ]
 
 
+def test_completed_analysis_updates_the_run_scientific_summary(tmp_path):
+    from resagent.models import ActionName, Artifact, ArtifactType, TaskStatus
+    from resagent.controller.planner import PlannedAction
+
+    class ScientificExpAgent:
+        def advise(self, state, layout, task=None):
+            return {
+                "artifact": Artifact(
+                    id="analysis", type=ArtifactType.scientific_decision,
+                    producer=Producer.ExpAgent, path="analysis.json",
+                ),
+                "tasks": [],
+                "raw": {
+                    "summary": "Constant LR performed better in this bounded run.",
+                    "conclusion": {
+                        "status": "inconclusive",
+                        "rationale": "Only one seed and three epochs were tested.",
+                    },
+                },
+            }
+
+    state = init_state("scientific-summary", str(tmp_path), "compare schedules")
+    analysis = AgentTask(
+        id="task_001", agent=Producer.ExpAgent, kind=AgentKind.advise,
+        capability="analyze_results", status=TaskStatus.pending,
+    )
+    state.tasks.append(analysis)
+    controller = Controller(
+        _FixedPlanner(PlannedAction(
+            ActionName.call_exp_agent, {"task_id": analysis.id},
+        )),
+        ScientificExpAgent(), CodingAgentAdapter(mock=True),
+        ReproAgentAdapter(mock=True),
+    )
+
+    observation = controller.step(state)
+
+    assert observation.result == "ok"
+    assert analysis.status == TaskStatus.completed
+    assert "Constant LR performed better" in state.current_summary
+    assert "Conclusion (inconclusive)" in state.current_summary
+    assert "one seed and three epochs" in state.current_summary
+
+
 def test_unhandled_directive_creates_replan_task(tmp_path):
     """A new user directive must spawn an ExpAgent re-plan task so the planner
     has a lever to change the plan (regression: directives reached the context

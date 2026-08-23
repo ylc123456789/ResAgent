@@ -368,13 +368,15 @@ def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
     """
     artifacts = {artifact.id: artifact for artifact in state.artifacts}
     issues: list[str] = []
+    reported_paths = _reported_artifact_paths(state)
 
     for task in state.tasks:
-        if (
-            not task.required
-            or task.status != TaskStatus.completed
-            or not task.artifacts
-        ):
+        if not task.required or task.status != TaskStatus.completed:
+            continue
+        for expected in _issue_values(task.input.get("expected_artifacts")):
+            if not _artifact_path_reported(expected, reported_paths):
+                _append_issue(issues, f"Missing required artifact: {expected}")
+        if not task.artifacts:
             continue
         artifact = artifacts.get(task.artifacts[-1])
         if artifact is None:
@@ -410,6 +412,53 @@ def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
         break
 
     return tuple(issues)
+
+def _reported_artifact_paths(state: ResearchState) -> set[str]:
+    """Collect executor-reported paths from the canonical artifact registry."""
+    current_artifact_ids = {
+        task.artifacts[-1]
+        for task in state.tasks
+        if task.status == TaskStatus.completed and task.artifacts
+    }
+    paths: set[str] = set()
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip().replace("\\", "/")
+        if text:
+            paths.add(text.removeprefix("./"))
+
+    for artifact in state.artifacts:
+        if artifact.id not in current_artifact_ids:
+            continue
+        add(artifact.path)
+        metadata = artifact.metadata
+        for value in _issue_values(metadata.get("output_artifacts")):
+            add(value)
+        raw = metadata.get("raw_result", {})
+        if not isinstance(raw, dict):
+            continue
+        for key in ("changed_files", "produced_files"):
+            for value in _issue_values(raw.get(key)):
+                add(value)
+        structured = raw.get("structured_result", {})
+        if not isinstance(structured, dict):
+            continue
+        for key in ("evidence_files", "evidence"):
+            for value in _issue_values(structured.get(key)):
+                if isinstance(value, dict):
+                    add(value.get("path"))
+                    add(value.get("source"))
+                else:
+                    add(value)
+    return paths
+
+
+def _artifact_path_reported(expected: Any, paths: set[str]) -> bool:
+    target = str(expected or "").strip().replace("\\", "/").removeprefix("./")
+    if not target:
+        return True
+    return any(path == target or path.endswith(f"/{target}") for path in paths)
+
 
 
 def _issue_values(value: Any) -> list[Any]:
