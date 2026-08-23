@@ -160,7 +160,7 @@ class ExpAgentAdapter:
                 summary=a.get("summary", ""),
             ))
 
-        ctx = AdvisorContext(situation=situation, artifacts=refs, existing_plan=None)
+        ctx = AdvisorContext(situation=situation, artifacts=refs)
 
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -241,7 +241,7 @@ class ExpAgentAdapter:
             "run_id": state.run.run_id,
             "task_id": f"exp_decision_{state.next_artifact_number():03d}",
         }
-        ctx_kwargs = dict(situation=situation, artifacts=artifacts, existing_plan=None)
+        ctx_kwargs = dict(situation=situation, artifacts=artifacts)
         if "parent_run" in AdvisorContext.model_fields:
             ctx_kwargs["parent_run"] = parent_run
         return AdvisorContext(**ctx_kwargs)

@@ -102,6 +102,43 @@ class TestExpAgentAdapter:
         assert context.artifacts[0].path == str(result_path.resolve())
         assert Path(context.artifacts[0].path).read_text() == "final accuracy: 99.08%"
 
+    def test_advisor_context_omits_deprecated_existing_plan(
+        self, tmp_path, monkeypatch,
+    ):
+        """The new AdvisorContext has no existing_plan; the adapter must not
+        pass it (revision flows through supersedes_action_ids instead)."""
+        class FakeArtifactRef:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class StrictAdvisorContext:
+            model_fields = {"parent_run": None}
+
+            def __init__(self, **kwargs):
+                assert "existing_plan" not in kwargs, (
+                    "adapter must not pass the deprecated existing_plan field"
+                )
+                self.__dict__.update(kwargs)
+
+        package = types.ModuleType("experiment_designer")
+        models = types.ModuleType("experiment_designer.models")
+        models.AdvisorContext = StrictAdvisorContext
+        models.ArtifactRef = FakeArtifactRef
+        monkeypatch.setitem(sys.modules, "experiment_designer", package)
+        monkeypatch.setitem(sys.modules, "experiment_designer.models", models)
+
+        state = _make_state()
+        task = AgentTask(
+            id="task_002", agent=Producer.ExpAgent, kind=AgentKind.advise,
+            input={"task_goal": "Analyze the completed experiment"},
+        )
+        adapter = ExpAgentAdapter()
+        monkeypatch.setattr(adapter, "_ensure_import", lambda: None)
+
+        context = adapter._build_advisor_context(state, task)
+
+        assert not hasattr(context, "existing_plan")
+
 
 class TestCodingAgentAdapter:
     def test_mock_execute(self):
