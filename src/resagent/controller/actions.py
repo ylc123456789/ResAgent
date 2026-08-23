@@ -418,7 +418,10 @@ class ControllerActions:
         )
 
     def _handle_finish(self, state, planned, layout) -> Observation:
-        check = validate_finish(state)
+        check = validate_finish(
+            state,
+            allow_final_issues=bool(planned.params.get("accept_final_issues")),
+        )
         if not check.allowed:
             return Observation(
                 action=ActionName.finish,

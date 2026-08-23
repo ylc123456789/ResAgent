@@ -106,6 +106,83 @@ def test_task_bound_ask_user_persists_answers_and_completes_task(tmp_path):
     assert restored.run.status == RunStatus.running
 
 
+def _state_with_acceptance_issue(tmp_path):
+    state = init_state("acceptance", str(tmp_path), "goal")
+    task = AgentTask(
+        id="task_001", agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task, capability="execute_experiment",
+        status=TaskStatus.completed, required=True, analysis_required=False,
+        artifacts=["result"],
+    )
+    state.tasks.append(task)
+    state.artifacts.append(Artifact(
+        id="result", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.json",
+        metadata={
+            "outcome": "completed_with_warnings",
+            "raw_result": {
+                "structured_result": {
+                    "delivery": {"issues": ["Missing required metric: accuracy"]},
+                },
+            },
+        },
+    ))
+    return state
+
+
+def test_final_acceptance_issue_pauses_without_calling_planner(tmp_path):
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("final acceptance gate must be deterministic")
+
+    state = _state_with_acceptance_issue(tmp_path)
+    obs = _controller(PanicPlanner()).step(state)
+
+    assert obs.result == "user_response_required"
+    assert state.run.status == RunStatus.paused
+    assert state.pending_question is not None
+    assert state.pending_question.requested_fields == ["final_acceptance_decision"]
+    assert "Missing required metric: accuracy" in state.pending_question.text
+
+
+def test_user_can_accept_final_issues_and_finish(tmp_path):
+    class PanicPlanner:
+        def choose_action(self, state):
+            raise AssertionError("explicit finish must not call the planner")
+
+    state = _state_with_acceptance_issue(tmp_path)
+    controller = _controller(PanicPlanner())
+    controller.step(state)
+    submit_user_response(
+        state, state.pending_question.question_id, "接受当前结果并收尾",
+    )
+
+    obs = controller.step(state)
+
+    assert obs.result == "ok"
+    assert state.run.status == RunStatus.completed
+
+
+def test_fix_answer_replans_through_expagent(tmp_path):
+    state = _state_with_acceptance_issue(tmp_path)
+    controller = _controller(ScriptedPlanner([
+        PlannedAction(ActionName.call_exp_agent, {"task_id": "task_002"}),
+    ]))
+    controller.step(state)
+    submit_user_response(state, state.pending_question.question_id, "修复这些问题")
+
+    directive = state.user_directives[-1]
+    assert directive.kind.value == "plan_revision"
+    assert directive.handled is False
+
+    obs = controller.step(state)
+
+    assert obs.result == "ok"
+    assert directive.handled is True
+    assert state.find_task("task_002").agent == Producer.ExpAgent
+    assert state.find_task("task_002").status == TaskStatus.completed
+
+
 def test_codingagent_mock_session_links_to_parent_run(tmp_path):
     layout = WorkspaceLayout(str(tmp_path), "parent-run")
     task = AgentTask(

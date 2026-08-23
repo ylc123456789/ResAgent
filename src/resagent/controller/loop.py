@@ -14,8 +14,8 @@ from ..adapters.codingagent import CodingAgentAdapter
 from ..adapters.reproagent import ReproAgentAdapter
 from ..persistence.state import save_state
 from .contracts import (
-    TERMINAL_RUN_STATUSES, apply_finish_control, ensure_directive_replan,
-    validate_finish,
+    FINAL_ACCEPTANCE_DECISION, TERMINAL_RUN_STATUSES, apply_finish_control,
+    ensure_directive_replan, final_acceptance_issues, validate_finish,
 )
 
 
@@ -65,7 +65,10 @@ class Controller(ControllerActions):
         # Explicit finish/stop is a ResAgent control, not a scientific re-plan.
         # It remains pending until any required result analysis is complete.
         finish_directive = apply_finish_control(state)
-        if finish_directive is not None and validate_finish(state).allowed:
+        accept_issues = _accepts_final_issues(state, finish_directive)
+        if finish_directive is not None and validate_finish(
+            state, allow_final_issues=accept_issues,
+        ).allowed:
             previous_summary = state.current_summary.strip()
             closure_note = "Run closed after an explicit user request."
             summary = (
@@ -75,7 +78,7 @@ class Controller(ControllerActions):
             )
             planned = PlannedAction(
                 ActionName.finish,
-                {"summary": summary},
+                {"summary": summary, "accept_final_issues": accept_issues},
                 reason="The user explicitly requested finish.",
             )
             state.decisions.append(DecisionRecord(
@@ -96,6 +99,29 @@ class Controller(ControllerActions):
         # Only plan revisions need ExpAgent. Information and confirmation are
         # already present in context; controls are handled above.
         ensure_directive_replan(state)
+
+        issues = final_acceptance_issues(state)
+        if issues and validate_finish(state, allow_final_issues=True).allowed:
+            listed = "\n".join(f"- {issue}" for issue in issues)
+            question = (
+                "Final acceptance found unresolved issues:\n"
+                f"{listed}\n\n"
+                "Choose one: authorize fixes (ResAgent will ask ExpAgent to "
+                "plan the minimum required work), accept the current result "
+                "and finish, or revise the research goal."
+            )
+            planned = PlannedAction(
+                ActionName.ask_user,
+                {
+                    "question": question,
+                    "requested_fields": [FINAL_ACCEPTANCE_DECISION],
+                },
+                reason="Final acceptance issues require a user decision.",
+            )
+            observation = self._execute(state, planned)
+            state.observations.append(observation)
+            state.run.status = RunStatus.paused
+            return observation
 
         planned = None
         planner_called = False
@@ -164,3 +190,15 @@ class Controller(ControllerActions):
             save_state(state)
 
         return state
+
+
+def _accepts_final_issues(state: ResearchState, directive) -> bool:
+    """Return whether this finish directive answers the acceptance question."""
+    if directive is None or directive.command != "finish":
+        return False
+    for question in reversed(state.answered_questions):
+        source_question = directive.source_conversation.removeprefix("answer:")
+        if question.question_id != source_question:
+            continue
+        return FINAL_ACCEPTANCE_DECISION in question.requested_fields
+    return False

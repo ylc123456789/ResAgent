@@ -13,7 +13,8 @@ from resagent.models import (
 )
 from resagent.controller.contracts import (
     allowed_action_candidates, analysis_coverage, ensure_analysis_coverage,
-    resolve_action, task_fingerprint, validate_finish,
+    final_acceptance_issues, resolve_action, task_fingerprint,
+    validate_finish,
 )
 
 
@@ -168,6 +169,40 @@ def test_finish_rejects_immediately_after_error(tmp_path):
 
     assert not check.allowed
     assert "error" in check.reason
+
+
+def test_final_acceptance_uses_current_structured_issues(tmp_path):
+    state = _state(tmp_path, analysis_required=False)
+    task = _experiment()
+    state.tasks.append(task)
+    state.artifacts.append(Artifact(
+        id="a1", type=ArtifactType.repro_result,
+        producer=Producer.ReproAgent, path="result.json",
+        metadata={
+            "outcome": "completed_with_warnings",
+            "raw_result": {
+                "structured_result": {
+                    "delivery": {"issues": ["Missing required artifact: metrics.json"]},
+                },
+            },
+        },
+    ))
+
+    assert final_acceptance_issues(state) == (
+        "Missing required artifact: metrics.json",
+    )
+    check = validate_finish(state)
+    assert not check.allowed
+    assert check.issues == final_acceptance_issues(state)
+    assert validate_finish(state, allow_final_issues=True).allowed
+
+    state.artifacts[0].metadata["outcome"] = "completed"
+    delivery = state.artifacts[0].metadata["raw_result"]["structured_result"][
+        "delivery"
+    ]
+    delivery["issues"] = []
+    assert final_acceptance_issues(state) == ()
+    assert validate_finish(state).allowed
 
 
 def test_terminal_run_has_no_action_candidates(tmp_path):

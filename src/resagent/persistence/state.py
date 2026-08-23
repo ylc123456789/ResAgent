@@ -30,8 +30,8 @@ _FINISH_CONTROL = re.compile(
     re.IGNORECASE,
 )
 _PLAN_REVISION = re.compile(
-    r"\b(change|revise|replace|instead|only\s+run|single\s+seed)\b|"
-    r"改成|改为|修改|调整|替换|换成|只跑|单\s*seed|增加|减少|重新规划|跳过",
+    r"\b(change|revise|replace|fix|repair|instead|only\s+run|single\s+seed)\b|"
+    r"改成|改为|修改|修复|调整|替换|换成|只跑|单\s*seed|增加|减少|重新规划|跳过",
     re.IGNORECASE,
 )
 

@@ -47,11 +47,15 @@ assert set(_CAPABILITY_KIND) == set(V2_CAPABILITIES), (
 )
 
 
+FINAL_ACCEPTANCE_DECISION = "final_acceptance_decision"
+
+
 @dataclass(frozen=True)
 class FinishCheck:
     allowed: bool
     reason: str = ""
     task_ids: tuple[str, ...] = ()
+    issues: tuple[str, ...] = ()
 
 
 def action_for_agent(agent: Producer) -> ActionName | None:
@@ -355,7 +359,80 @@ def task_attempt_limit_reached(state: ResearchState, task: AgentTask) -> bool:
     )
 
 
-def validate_finish(state: ResearchState) -> FinishCheck:
+def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
+    """Return unresolved issues explicitly reported by completed work.
+
+    Only current task artifacts are considered, so a successful retry replaces
+    stale warnings from an earlier attempt. Scientific questions come from the
+    newest advisor decision; historical questions remain audit records only.
+    """
+    artifacts = {artifact.id: artifact for artifact in state.artifacts}
+    issues: list[str] = []
+
+    for task in state.tasks:
+        if (
+            not task.required
+            or task.status != TaskStatus.completed
+            or not task.artifacts
+        ):
+            continue
+        artifact = artifacts.get(task.artifacts[-1])
+        if artifact is None:
+            continue
+        metadata = artifact.metadata
+        raw = metadata.get("raw_result", {})
+        if not isinstance(raw, dict):
+            raw = {}
+        structured = raw.get("structured_result", {})
+        delivery = (
+            structured.get("delivery", {}) if isinstance(structured, dict) else {}
+        )
+        delivery_issues = (
+            delivery.get("issues") if isinstance(delivery, dict) else None
+        )
+        for issue in _issue_values(delivery_issues):
+            _append_issue(issues, issue)
+        for issue in _issue_values(metadata.get("acceptance_issues")):
+            _append_issue(issues, issue)
+
+        outcome = metadata.get("outcome") or raw.get("outcome") or raw.get("status")
+        if outcome == "completed_with_warnings" and not (
+            isinstance(delivery, dict) and delivery.get("issues")
+        ):
+            _append_issue(issues, raw.get("summary") or artifact.summary)
+
+    for artifact in reversed(state.artifacts):
+        raw = artifact.metadata.get("raw_decision")
+        if not isinstance(raw, dict):
+            continue
+        for issue in _issue_values(raw.get("needs_user_input")):
+            _append_issue(issues, issue)
+        break
+
+    return tuple(issues)
+
+
+def _issue_values(value: Any) -> list[Any]:
+    if value is True:
+        return ["Scientific advisor requires user input before completion."]
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _append_issue(issues: list[str], value: Any) -> None:
+    if isinstance(value, dict):
+        value = value.get("message") or value.get("issue") or str(value)
+    text = str(value or "").strip()
+    if text and text not in issues:
+        issues.append(text)
+
+
+def validate_finish(
+    state: ResearchState, *, allow_final_issues: bool = False,
+) -> FinishCheck:
     """Check state invariants before allowing a successful finish."""
     if state.pending_question is not None or state.run.status == RunStatus.paused:
         return FinishCheck(False, "a user question is still pending")
@@ -378,4 +455,11 @@ def validate_finish(state: ResearchState) -> FinishCheck:
         )
     if not state.artifacts:
         return FinishCheck(False, "the run has no result artifacts")
+    issues = final_acceptance_issues(state)
+    if issues and not allow_final_issues:
+        return FinishCheck(
+            False,
+            "final acceptance found unresolved issues",
+            issues=issues,
+        )
     return FinishCheck(True)
