@@ -7,7 +7,9 @@ mode engages only when reuse_mode="content_addressed" AND a root is set.
 import json
 from pathlib import Path
 
-from resagent.config import ResourcesConfig
+from resagent.config import Config, ResourcesConfig
+from resagent.orchestrator import build_controller
+from resagent.capabilities import CapabilityRegistry
 from resagent.controller import Controller
 from resagent.controller.planner import PlannedAction, Planner
 from resagent.models import (
@@ -56,6 +58,25 @@ def _write_manifest(root: Path, manifest: dict) -> None:
 
 def _resources(root: Path, mode: str = "content_addressed") -> ResourcesConfig:
     return ResourcesConfig(root=str(root), reuse_mode=mode)
+
+
+def test_controller_passes_resource_mode_consistently(tmp_path):
+    cfg = Config()
+    cfg.resources.root = str(tmp_path / "resources")
+    registry = CapabilityRegistry(cfg)
+    registry.load()
+
+    cfg.resources.reuse_mode = "legacy"
+    legacy = build_controller(cfg, mock=True, registry=registry)
+    assert legacy.codingagent.resource_root == ""
+    assert legacy.reproagent.resource_root == ""
+    assert legacy.reproagent.reuse_mode == "legacy"
+
+    cfg.resources.reuse_mode = "content_addressed"
+    managed = build_controller(cfg, mock=True, registry=registry)
+    assert managed.codingagent.resource_root == cfg.resources.root
+    assert managed.reproagent.resource_root == cfg.resources.root
+    assert managed.reproagent.reuse_mode == "content_addressed"
 
 
 # ── manifest IO + selection ──────────────────────────────────────────

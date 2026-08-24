@@ -135,6 +135,11 @@ def build_controller(
         for warning in registry.warnings:
             print(f"[registry] {warning}", file=sys.stderr)
 
+    managed_resource_root = (
+        config.resources.root
+        if config.resources.reuse_mode == "content_addressed"
+        else ""
+    )
     planner = Planner(
         api_base=config.llm.api_base,
         api_key_env=config.llm.api_key_env,
@@ -161,7 +166,7 @@ def build_controller(
             api_base=config.llm.api_base,
             api_key_env=config.llm.api_key_env,
             max_steps=48,
-            resource_root=config.resources.root,
+            resource_root=managed_resource_root,
             dataset_cache_dir=config.policy.repro_dataset_cache,
             mirror_profile=config.policy.repro_mirror_profile,
             pip_index_profile=config.policy.repro_mirror_profile,
@@ -174,7 +179,7 @@ def build_controller(
             api_key_env=config.llm.api_key_env,
             mirror_profile=config.policy.repro_mirror_profile,
             dataset_cache_dir=config.policy.repro_dataset_cache,
-            resource_root=config.resources.root,
+            resource_root=managed_resource_root,
             reuse_mode=config.resources.reuse_mode,
             mock=mock,
         ),
