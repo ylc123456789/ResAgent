@@ -373,7 +373,7 @@ def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
     for task in state.tasks:
         if not task.required or task.status != TaskStatus.completed:
             continue
-        for expected in _issue_values(task.input.get("expected_artifacts")):
+        for expected in _user_required_artifacts(state, task):
             if not _artifact_path_reported(expected, reported_paths):
                 _append_issue(issues, f"Missing required artifact: {expected}")
         if not task.artifacts:
@@ -412,6 +412,19 @@ def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
         break
 
     return tuple(issues)
+
+
+def _user_required_artifacts(state: ResearchState, task: AgentTask) -> list[Any]:
+    """Return exact paths explicitly named by the user, not advisor inventions."""
+    user_text = "\n".join([
+        state.run.research_goal,
+        *(directive.text for directive in state.user_directives),
+    ]).lower().replace("\\", "/")
+    return [
+        value for value in _issue_values(task.input.get("expected_artifacts"))
+        if str(value).strip().lower().replace("\\", "/") in user_text
+    ]
+
 
 def _reported_artifact_paths(state: ResearchState) -> set[str]:
     """Collect executor-reported paths from the canonical artifact registry."""

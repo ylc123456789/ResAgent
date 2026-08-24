@@ -96,7 +96,11 @@ def test_analysis_delivery_contract_is_preserved(tmp_path):
 
 
 def test_final_acceptance_checks_promised_artifacts_from_registered_outputs(tmp_path):
-    state = init_state("artifact-acceptance", str(tmp_path), "produce metrics")
+    state = init_state(
+        "artifact-acceptance",
+        str(tmp_path),
+        "produce final_metrics.json",
+    )
     decision = Artifact(
         id="decision",
         type=ArtifactType.scientific_decision,
@@ -110,7 +114,12 @@ def test_final_acceptance_checks_promised_artifacts_from_registered_outputs(tmp_
         kind=AgentKind.advise,
         capability="analyze_results",
         status=TaskStatus.completed,
-        input={"expected_artifacts": ["final_metrics.json"]},
+        input={
+            "expected_artifacts": [
+                "final_metrics.json",
+                "advisor_invented_report.md",
+            ],
+        },
         artifacts=[decision.id],
     )
     state.artifacts.append(decision)
