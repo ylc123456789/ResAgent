@@ -25,12 +25,23 @@ def actions_to_tasks(
     supersedes_action_ids: list[str] | None = None,
 ) -> tuple[list[AgentTask], list[str]]:
     """Convert one validated ExpAgent V2 action graph into ResAgent tasks."""
-    issues = dependency_graph_issues(actions)
+    historical, ambiguous = _historical_action_tasks(state)
+    referenced = {
+        str(value).strip()
+        for action in actions
+        for value in action.get("depends_on", [])
+        if str(value).strip()
+    }
+    issues = dependency_graph_issues(actions, set(historical))
+    issues.extend(
+        f"ambiguous dependency action_id '{action_id}' in current run"
+        for action_id in sorted(referenced & ambiguous)
+    )
     if issues:
         return [], issues
 
     tasks: list[AgentTask] = []
-    action_tasks: dict[str, AgentTask] = {}
+    action_tasks: dict[str, AgentTask] = dict(historical)
     pending_dependencies: list[tuple[AgentTask, list[str]]] = []
     actions_by_id = {
         str(action.get("action_id", "")).strip(): action
@@ -89,6 +100,13 @@ def actions_to_tasks(
             equivalent = next(
                 (item for item in tasks if item.fingerprint == fingerprint), None
             )
+        prior_action = historical.get(action_id)
+        if prior_action is not None and equivalent is not prior_action:
+            issues.append(
+                f"action_id '{action_id}' already identifies different work in "
+                "the current run"
+            )
+            continue
         if equivalent is not None:
             if action_id:
                 action_tasks[action_id] = equivalent
@@ -135,6 +153,24 @@ def actions_to_tasks(
     )
     issues.extend(replacement_issues)
     return tasks, issues
+
+
+def _historical_action_tasks(
+    state,
+) -> tuple[dict[str, AgentTask], set[str]]:
+    """Return unambiguous, non-retired action ids already in this run."""
+    grouped: dict[str, list[AgentTask]] = {}
+    for task in state.tasks:
+        if task.action_id and task.status != TaskStatus.skipped:
+            grouped.setdefault(task.action_id, []).append(task)
+    ambiguous = {
+        action_id for action_id, matches in grouped.items() if len(matches) > 1
+    }
+    return (
+        {action_id: matches[0] for action_id, matches in grouped.items()
+         if action_id not in ambiguous},
+        ambiguous,
+    )
 
 
 def retire_superseded_actions(

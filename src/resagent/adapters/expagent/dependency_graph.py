@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 
-def dependency_graph_issues(actions: list[dict]) -> list[str]:
-    """Validate decision-local dependency IDs and reject cycles atomically."""
+def dependency_graph_issues(
+    actions: list[dict], existing_action_ids: set[str] | None = None,
+) -> list[str]:
+    """Validate dependencies against this decision and the current run."""
     issues: list[str] = []
     identifiers = [
         str(action.get("action_id", "")).strip()
@@ -16,7 +18,7 @@ def dependency_graph_issues(actions: list[dict]) -> list[str]:
     if len(identifiers) != len(set(identifiers)):
         issues.append("recommended actions contain duplicate action_id values")
 
-    known = set(identifiers)
+    known = set(identifiers) | set(existing_action_ids or ())
     graph: dict[str, list[str]] = {}
     for index, action in enumerate(actions):
         action_id = str(action.get("action_id", "")).strip()

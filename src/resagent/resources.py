@@ -11,7 +11,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AgentKind, AgentTask, Producer, ResearchState, ResourceRef, TaskStatus
+from .models import (
+    AgentKind, AgentTask, Artifact, ArtifactType, Producer, ResearchState,
+    ResourceRef, TaskStatus,
+)
 from .persistence.sessions import read_session_card
 from .persistence.workspace import WorkspaceLayout
 from .controller.tasks import create_task
@@ -133,6 +136,76 @@ def materialize_dependency_artifacts(
             })
     task.input["input_artifacts"] = bindings
     return bindings
+
+
+def register_declared_outputs(
+    state: ResearchState,
+    task: AgentTask,
+    raw_result: dict,
+    workspace_path: str,
+    layout: WorkspaceLayout,
+) -> list[str]:
+    """Register declared files that the executor reports and actually wrote."""
+    expected = list(dict.fromkeys(
+        str(value).strip().replace("\\", "/").removeprefix("./")
+        for value in task.input.get("expected_artifacts", [])
+        if str(value).strip()
+    ))
+    if not expected or not workspace_path:
+        return []
+
+    reported = _reported_output_paths(raw_result)
+    workspace = Path(workspace_path).expanduser().resolve()
+    registered: list[str] = []
+    for index, relative in enumerate(expected, 1):
+        declared = Path(relative)
+        if declared.is_absolute() or ".." in declared.parts:
+            continue
+        if not any(
+            path == relative or path.endswith(f"/{relative}")
+            for path in reported
+        ):
+            continue
+        candidate = (workspace / declared).resolve()
+        try:
+            candidate.relative_to(workspace)
+        except ValueError:
+            continue
+        if not candidate.is_file():
+            continue
+        try:
+            artifact_path = layout.relpath(candidate)
+        except ValueError:
+            artifact_path = str(candidate)
+        artifact = Artifact(
+            id=f"declared_output_{task.id.removeprefix('task_')}_{index:02d}",
+            type=ArtifactType.other,
+            producer=task.agent,
+            path=artifact_path,
+            summary=f"Declared output: {relative}",
+            metadata={"producer_task_id": task.id, "declared_path": relative},
+        )
+        state.register_artifact(artifact, task)
+        registered.append(artifact.id)
+    return registered
+
+
+def _reported_output_paths(raw_result: dict) -> set[str]:
+    """Return normalized file paths explicitly reported by an executor."""
+    values: list[object] = []
+    for key in ("changed_files", "produced_files"):
+        value = raw_result.get(key, [])
+        values.extend(value if isinstance(value, list) else [value])
+    structured = raw_result.get("structured_result", {})
+    if isinstance(structured, dict):
+        evidence = structured.get("evidence", [])
+        for item in evidence if isinstance(evidence, list) else []:
+            if isinstance(item, dict):
+                values.extend([item.get("path"), item.get("source")])
+    return {
+        str(value).strip().replace("\\", "/").removeprefix("./")
+        for value in values if str(value or "").strip()
+    }
 
 
 def register_task_resources(

@@ -19,6 +19,7 @@ from ..resources import (
     acquire_lease,
     materialize_dependency_artifacts,
     materialize_task_bindings,
+    register_declared_outputs,
     register_task_resources,
     release_lease,
     resume_repaired_tasks,
@@ -179,14 +180,20 @@ class ControllerActions:
                 result.get("session_manifest", ""),
                 result.get("workspace_path", ""),
             )
+            output_ids: list[str] = []
             if task.status == TaskStatus.completed:
+                output_ids = register_declared_outputs(
+                    state, task, result["raw"],
+                    result.get("workspace_path", ""), layout,
+                )
+                task.attempts[-1].artifacts.extend(output_ids)
                 resume_repaired_tasks(state, task)
 
             return Observation(
                 action=ActionName.call_coding_agent,
                 result="ok" if task.status == TaskStatus.completed else ("user_response_required" if task.status == TaskStatus.needs_user_input else "error"),
                 detail=result["raw"].get("summary", f"Coding task {task.id} {task.status.value}."),
-                artifact_ids=[result["artifact"].id],
+                artifact_ids=[result["artifact"].id, *output_ids],
                 task_ids=[task.id],
             )
         except Exception as e:
@@ -256,7 +263,12 @@ class ControllerActions:
                 result.get("session_manifest", ""),
                 materialized_workspace,
             )
+            output_ids: list[str] = []
             if task.status == TaskStatus.completed:
+                output_ids = register_declared_outputs(
+                    state, task, result["raw"], materialized_workspace, layout,
+                )
+                task.attempts[-1].artifacts.extend(output_ids)
                 ensure_analysis_coverage(state, task)
             spawned = None
             detail = result["raw"].get("summary", "")
@@ -280,7 +292,7 @@ class ControllerActions:
                 action=ActionName.call_repro_agent,
                 result=obs_result,
                 detail=detail,
-                artifact_ids=[result["artifact"].id],
+                artifact_ids=[result["artifact"].id, *output_ids],
                 task_ids=[task.id] + ([spawned.id] if spawned else []),
             )
         except Exception as e:

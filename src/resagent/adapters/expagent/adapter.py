@@ -244,6 +244,12 @@ class ExpAgentAdapter:
         ctx_kwargs = dict(situation=situation, artifacts=artifacts)
         if "parent_run" in AdvisorContext.model_fields:
             ctx_kwargs["parent_run"] = parent_run
+        if "known_action_ids" in AdvisorContext.model_fields:
+            ctx_kwargs["known_action_ids"] = list(dict.fromkeys(
+                item.action_id
+                for item in state.tasks
+                if item.action_id and item.status.value != "skipped"
+            ))
         return AdvisorContext(**ctx_kwargs)
 
     def _build_situation(self, state, task: AgentTask | None = None) -> str:

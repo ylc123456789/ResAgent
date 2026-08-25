@@ -378,30 +378,31 @@ def final_acceptance_issues(state: ResearchState) -> tuple[str, ...]:
                 _append_issue(issues, f"Missing required artifact: {expected}")
         if not task.artifacts:
             continue
-        artifact = artifacts.get(task.artifacts[-1])
-        if artifact is None:
-            continue
-        metadata = artifact.metadata
-        raw = metadata.get("raw_result", {})
-        if not isinstance(raw, dict):
-            raw = {}
-        structured = raw.get("structured_result", {})
-        delivery = (
-            structured.get("delivery", {}) if isinstance(structured, dict) else {}
-        )
-        delivery_issues = (
-            delivery.get("issues") if isinstance(delivery, dict) else None
-        )
-        for issue in _issue_values(delivery_issues):
-            _append_issue(issues, issue)
-        for issue in _issue_values(metadata.get("acceptance_issues")):
-            _append_issue(issues, issue)
+        for artifact_id in task.artifacts:
+            artifact = artifacts.get(artifact_id)
+            if artifact is None:
+                continue
+            metadata = artifact.metadata
+            raw = metadata.get("raw_result", {})
+            if not isinstance(raw, dict):
+                raw = {}
+            structured = raw.get("structured_result", {})
+            delivery = (
+                structured.get("delivery", {}) if isinstance(structured, dict) else {}
+            )
+            delivery_issues = (
+                delivery.get("issues") if isinstance(delivery, dict) else None
+            )
+            for issue in _issue_values(delivery_issues):
+                _append_issue(issues, issue)
+            for issue in _issue_values(metadata.get("acceptance_issues")):
+                _append_issue(issues, issue)
 
-        outcome = metadata.get("outcome") or raw.get("outcome") or raw.get("status")
-        if outcome == "completed_with_warnings" and not (
-            isinstance(delivery, dict) and delivery.get("issues")
-        ):
-            _append_issue(issues, raw.get("summary") or artifact.summary)
+            outcome = metadata.get("outcome") or raw.get("outcome") or raw.get("status")
+            if outcome == "completed_with_warnings" and not (
+                isinstance(delivery, dict) and delivery.get("issues")
+            ):
+                _append_issue(issues, raw.get("summary") or artifact.summary)
 
     for artifact in reversed(state.artifacts):
         raw = artifact.metadata.get("raw_decision")
@@ -429,9 +430,10 @@ def _user_required_artifacts(state: ResearchState, task: AgentTask) -> list[Any]
 def _reported_artifact_paths(state: ResearchState) -> set[str]:
     """Collect executor-reported paths from the canonical artifact registry."""
     current_artifact_ids = {
-        task.artifacts[-1]
+        artifact_id
         for task in state.tasks
-        if task.status == TaskStatus.completed and task.artifacts
+        if task.status == TaskStatus.completed
+        for artifact_id in task.artifacts
     }
     paths: set[str] = set()
 

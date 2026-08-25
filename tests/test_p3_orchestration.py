@@ -613,3 +613,64 @@ def test_artifact_path_resolution_accepts_run_relative_and_absolute_paths(tmp_pa
         tmp_path / "paths" / relative
     ).resolve()
     assert resolve_artifact_path(state, absolute) == absolute.resolve()
+
+
+def test_followup_action_depends_on_tasks_from_earlier_decisions(tmp_path):
+    state = init_state("followup", str(tmp_path), "run two arms, then aggregate")
+    constant = AgentTask(
+        id="task_001",
+        agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task,
+        action_id="run_constant",
+        status=TaskStatus.completed,
+        artifacts=["constant-result"],
+    )
+    cosine = AgentTask(
+        id="task_002",
+        agent=Producer.ReproAgent,
+        kind=AgentKind.repro_task,
+        action_id="run_cosine",
+        status=TaskStatus.completed,
+        artifacts=["cosine-result"],
+    )
+    state.tasks.extend([constant, cosine])
+    state.artifacts.extend([
+        Artifact(
+            id="constant-result",
+            type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path="constant/result.json",
+        ),
+        Artifact(
+            id="cosine-result",
+            type=ArtifactType.repro_result,
+            producer=Producer.ReproAgent,
+            path="cosine/result.json",
+        ),
+    ])
+
+    tasks, issues = actions_to_tasks(
+        [{
+            "action_id": "aggregate_results",
+            "capability": "modify_code",
+            "objective": "write final_metrics.json from both arms",
+            "rationale": "complete the requested delivery",
+            "depends_on": ["run_constant", "run_cosine"],
+            "project_ref": "project",
+            "required": True,
+            "constraints": [],
+            "verify_commands": [],
+            "expected_artifacts": ["final_metrics.json"],
+        }],
+        state, "decision_002", 3, registry=make_registry(),
+    )
+
+    assert issues == []
+    assert len(tasks) == 1
+    followup = tasks[0]
+    assert followup.depends_on == [constant.id, cosine.id]
+
+    materialize_dependency_artifacts(state, followup)
+    assert {
+        item["artifact_id"] for item in followup.input["input_artifacts"]
+    } == {"constant-result", "cosine-result"}

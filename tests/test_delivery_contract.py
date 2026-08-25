@@ -7,6 +7,8 @@ from resagent.models import (
     AgentKind, AgentTask, Artifact, ArtifactType, Producer, TaskStatus,
 )
 from resagent.persistence.state import init_state
+from resagent.persistence.workspace import WorkspaceLayout
+from resagent.resources import register_declared_outputs
 from tests.v2_registry import make_registry
 
 
@@ -148,4 +150,40 @@ def test_final_acceptance_checks_promised_artifacts_from_registered_outputs(tmp_
         },
     ))
 
+    assert final_acceptance_issues(state) == ()
+
+
+def test_executor_declared_output_becomes_a_first_class_artifact(tmp_path):
+    state = init_state(
+        "declared-output", str(tmp_path), "produce final_metrics.json",
+    )
+    layout = WorkspaceLayout(str(tmp_path), state.run.run_id)
+    workspace = layout.run_dir / "repo"
+    workspace.mkdir(parents=True)
+    (workspace / "final_metrics.json").write_text(
+        '{"accuracy": 0.9}', encoding="utf-8",
+    )
+    task = AgentTask(
+        id="task_001",
+        agent=Producer.CodingAgent,
+        kind=AgentKind.coding_task,
+        status=TaskStatus.completed,
+        input={"expected_artifacts": ["final_metrics.json"]},
+    )
+    state.tasks.append(task)
+
+    artifact_ids = register_declared_outputs(
+        state, task, {"changed_files": ["final_metrics.json"]},
+        str(workspace), layout,
+    )
+
+    assert artifact_ids == ["declared_output_001_01"]
+    assert task.artifacts == artifact_ids
+    artifact = state.find_artifact(artifact_ids[0])
+    assert artifact is not None
+    assert artifact.path == "repo/final_metrics.json"
+    assert artifact.metadata == {
+        "producer_task_id": task.id,
+        "declared_path": "final_metrics.json",
+    }
     assert final_acceptance_issues(state) == ()
