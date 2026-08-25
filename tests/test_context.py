@@ -75,8 +75,9 @@ class TestAdapterContext:
                 "input_artifacts": [{
                     "artifact_id": "baseline_result",
                     "path": "/runs/baseline.json",
-                    "summary": "baseline accuracy 0.91",
+                    "summary": "result at /private/run/baseline.json",
                     "producer_task_id": "task_001",
+                    "type": "repro_result",
                 }],
             },
         )
@@ -87,11 +88,9 @@ class TestAdapterContext:
         assert ctx["readonly_inputs"] == [{
             "id": "baseline_result",
             "path": "/runs/baseline.json",
-            "description": (
-                "baseline accuracy 0.91; producer task task_001; "
-                "artifact baseline_result"
-            ),
+            "description": "repro_result produced by task_001",
         }]
+        assert "/private/run" not in ctx["readonly_inputs"][0]["description"]
 
     def test_reproagent_context(self):
         task = AgentTask(

@@ -115,7 +115,7 @@ def build_codingagent_context(task: AgentTask) -> dict:
             {
                 "id": item.get("artifact_id", ""),
                 "path": item.get("path", ""),
-                "description": _artifact_description(item),
+                "description": _readonly_input_description(item),
             }
             for item in artifacts
             if isinstance(item, dict)
@@ -171,6 +171,13 @@ def build_reproagent_context(task: AgentTask) -> dict:
         "success_criteria": _as_list(task.input.get("success_criteria", [])),
         "project_ref": task.project_ref,
     }
+
+
+def _readonly_input_description(item: dict) -> str:
+    """Describe an input by identity without copying untrusted artifact text."""
+    kind = str(item.get("type") or "artifact")
+    producer = str(item.get("producer_task_id") or "").strip()
+    return f"{kind} produced by {producer}" if producer else kind
 
 
 def _artifact_description(item: dict) -> str:
