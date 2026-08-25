@@ -66,6 +66,33 @@ class TestAdapterContext:
         assert ctx["task_goal"] == "fix bug"
         assert "no refactor" in ctx["constraints"]
 
+    def test_codingagent_context_uses_readonly_inputs_without_paths_in_goal(self):
+        task = AgentTask(
+            id="t2", agent=Producer.CodingAgent,
+            kind=AgentKind.coding_task,
+            input={
+                "task_goal": "aggregate results",
+                "input_artifacts": [{
+                    "artifact_id": "baseline_result",
+                    "path": "/runs/baseline.json",
+                    "summary": "baseline accuracy 0.91",
+                    "producer_task_id": "task_001",
+                }],
+            },
+        )
+
+        ctx = build_codingagent_context(task)
+
+        assert ctx["task_goal"] == "aggregate results"
+        assert ctx["readonly_inputs"] == [{
+            "id": "baseline_result",
+            "path": "/runs/baseline.json",
+            "description": (
+                "baseline accuracy 0.91; producer task task_001; "
+                "artifact baseline_result"
+            ),
+        }]
+
     def test_reproagent_context(self):
         task = AgentTask(
             id="t1", agent=Producer.ReproAgent,

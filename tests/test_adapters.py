@@ -154,6 +154,45 @@ class TestCodingAgentAdapter:
         assert result["artifact"].producer == Producer.CodingAgent
         assert "test coding task" in result["artifact"].summary
 
+    def test_readonly_inputs_reach_code_task_spec(self, tmp_path, monkeypatch):
+        captured = {}
+        package = types.ModuleType("coding_agent")
+
+        class FakeSpec:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class FakeResult:
+            def model_dump(self):
+                return {"status": "completed", "summary": "ok"}
+
+        package.CodeTaskSpec = FakeSpec
+        package.run_code_task = lambda _spec: FakeResult()
+        monkeypatch.setitem(sys.modules, "coding_agent", package)
+
+        source = tmp_path / "result.json"
+        source.write_text("{}", encoding="utf-8")
+        workspace = tmp_path / "repo"
+        workspace.mkdir()
+        readonly_inputs = [{
+            "id": "result",
+            "path": str(source),
+            "description": "experiment result",
+        }]
+        adapter = CodingAgentAdapter()
+        monkeypatch.setattr(adapter, "_ensure_import", lambda: None)
+
+        adapter._call_execute(
+            {
+                "workspace_path": str(workspace),
+                "task_goal": "aggregate",
+                "readonly_inputs": readonly_inputs,
+            },
+            tmp_path / "out",
+        )
+
+        assert captured["readonly_inputs"] == readonly_inputs
+
 
 class TestReproAgentAdapter:
     def test_mock_execute(self):

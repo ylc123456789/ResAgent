@@ -106,13 +106,21 @@ def _as_list(value):
 
 def build_codingagent_context(task: AgentTask) -> dict:
     """Extract CodeTaskSpec-like dict from an AgentTask."""
-    task_goal = _goal_with_dependency_artifacts(
-        task.input.get("task_goal", ""), task.input.get("input_artifacts", []),
-    )
+    artifacts = task.input.get("input_artifacts", [])
     return {
         "workspace_path": task.input.get("workspace_path")
                        or task.input.get("repo_path", ""),
-        "task_goal": task_goal,
+        "task_goal": task.input.get("task_goal", ""),
+        "readonly_inputs": [
+            {
+                "id": item.get("artifact_id", ""),
+                "path": item.get("path", ""),
+                "description": _artifact_description(item),
+            }
+            for item in artifacts
+            if isinstance(item, dict)
+            and item.get("artifact_id") and item.get("path")
+        ],
         "constraints": _as_list(task.input.get("constraints", [])),
         "verify_commands": _as_list(task.input.get("verify_commands", [])),
         "allowed_paths": _as_list(task.input.get("allowed_paths", [])),

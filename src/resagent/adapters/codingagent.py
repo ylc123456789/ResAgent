@@ -240,6 +240,7 @@ class CodingAgentAdapter:
             task_goal=spec.get("task_goal", ""),
             constraints=spec.get("constraints", []),
             verify_commands=spec.get("verify_commands", []),
+            readonly_inputs=spec.get("readonly_inputs", []),
             allowed_paths=spec.get("allowed_paths", []),
             max_steps=self.max_steps,
             model=self.model,
